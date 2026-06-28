@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 function loadSet(key, fallback) {
   try {
@@ -637,9 +637,96 @@ export default function App() {
   const [unlockedSkills, setUnlockedSkills] = useState(() => loadSet("cal_skills", ["deadhang", "wallhs", "ringsupport"]));
   const [completedDays, setCompletedDays] = useState(() => loadSet("cal_days", []));
   const [selectedExercise, setSelectedExercise] = useState(null);
+  const [sessionActive, setSessionActive] = useState(false);
+  const [sessionExIndex, setSessionExIndex] = useState(0);
+  const [sessionFinished, setSessionFinished] = useState(false);
+  const [timerSeconds, setTimerSeconds] = useState(0);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [inCooldown, setInCooldown] = useState(false);
+  const [cooldownSeconds, setCooldownSeconds] = useState(120);
+  const [exerciseTimes, setExerciseTimes] = useState([]);
+  const timerRef = useRef(null);
+  const cooldownRef = useRef(null);
 
   useEffect(() => { saveSet("cal_skills", unlockedSkills); }, [unlockedSkills]);
   useEffect(() => { saveSet("cal_days", completedDays); }, [completedDays]);
+
+  useEffect(() => {
+    if (timerRunning) {
+      timerRef.current = setInterval(() => setTimerSeconds((s) => s + 1), 1000);
+    } else {
+      clearInterval(timerRef.current);
+    }
+    return () => clearInterval(timerRef.current);
+  }, [timerRunning]);
+
+  useEffect(() => {
+    if (inCooldown) {
+      cooldownRef.current = setInterval(() => {
+        setCooldownSeconds((s) => {
+          if (s <= 1) {
+            clearInterval(cooldownRef.current);
+            setInCooldown(false);
+            setCooldownSeconds(120);
+            setTimerSeconds(0);
+            setTimerRunning(true);
+            return 120;
+          }
+          return s - 1;
+        });
+      }, 1000);
+    } else {
+      clearInterval(cooldownRef.current);
+    }
+    return () => clearInterval(cooldownRef.current);
+  }, [inCooldown]);
+
+  const startSession = () => {
+    setSessionExIndex(0);
+    setSessionFinished(false);
+    setTimerSeconds(0);
+    setTimerRunning(true);
+    setInCooldown(false);
+    setCooldownSeconds(120);
+    setExerciseTimes([]);
+    setSessionActive(true);
+  };
+
+  const closeSession = () => {
+    setSessionActive(false);
+    setTimerRunning(false);
+    setInCooldown(false);
+    setTimerSeconds(0);
+    setCooldownSeconds(120);
+  };
+
+  const goNextExercise = (exercises) => {
+    const recorded = timerSeconds;
+    setExerciseTimes((prev) => [...prev, recorded]);
+    setTimerRunning(false);
+    setTimerSeconds(0);
+    if (sessionExIndex === exercises.length - 1) {
+      setSessionFinished(true);
+    } else {
+      setInCooldown(true);
+      setCooldownSeconds(120);
+      setSessionExIndex((i) => i + 1);
+    }
+  };
+
+  const skipCooldown = () => {
+    clearInterval(cooldownRef.current);
+    setInCooldown(false);
+    setCooldownSeconds(120);
+    setTimerSeconds(0);
+    setTimerRunning(true);
+  };
+
+  const formatTime = (s) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  };
 
   const resetProgress = () => {
     if (window.confirm("Reset all completed sessions and unlocked skills? This cannot be undone.")) {
@@ -775,6 +862,29 @@ export default function App() {
               })}
             </div>
 
+            {/* Start Session */}
+            <button
+              onClick={startSession}
+              style={{
+                marginBottom: 16,
+                width: "100%",
+                background: "#1A3A28",
+                border: "1px solid #5EC47A",
+                borderRadius: 10,
+                padding: "15px",
+                cursor: "pointer",
+                fontSize: 15,
+                fontWeight: 700,
+                color: "#5EC47A",
+                letterSpacing: 0.5,
+                transition: "all 0.2s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "#1E4A30"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "#1A3A28"; }}
+            >
+              ▶ Start Session
+            </button>
+
             {/* Exercises */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
               {workout.exercises.map((ex, i) => (
@@ -817,49 +927,11 @@ export default function App() {
               ))}
             </div>
 
-            {/* Complete Day Button */}
-            <button
-              onClick={toggleDay}
-              style={{
-                width: "100%",
-                background: completedDays.has(dayKey) ? "#1E3A28" : phase.color,
-                border: `1px solid ${completedDays.has(dayKey) ? "#5EC47A" : phase.color}`,
-                borderRadius: 10,
-                padding: "14px",
-                cursor: "pointer",
-                fontSize: 14,
-                fontWeight: 700,
-                color: completedDays.has(dayKey) ? "#5EC47A" : "#fff",
-                letterSpacing: 0.5,
-                transition: "all 0.2s",
-              }}
-            >
-              {completedDays.has(dayKey) ? "✓ Completed — Tap to Undo" : "Mark Session Complete"}
-            </button>
-
             {/* Rest Note */}
             <div style={{ marginTop: 16, padding: "12px 14px", background: "#1A1D2E", borderRadius: 8, fontSize: 12, color: "#667", lineHeight: 1.6 }}>
               <strong style={{ color: "#888" }}>Rest:</strong> Take at least one day off between sessions. A–B–rest–C or Mon/Wed/Fri works well. Prioritise sleep and protein (aim for ~1.6–2g per kg of bodyweight).
             </div>
 
-            <button
-              onClick={resetProgress}
-              style={{
-                marginTop: 12,
-                width: "100%",
-                background: "none",
-                border: "1px solid #2A2D3E",
-                borderRadius: 8,
-                padding: "10px",
-                cursor: "pointer",
-                fontSize: 12,
-                fontWeight: 600,
-                color: "#667",
-                letterSpacing: 0.3,
-              }}
-            >
-              Reset all progress
-            </button>
           </>
         )}
 
@@ -926,6 +998,274 @@ export default function App() {
           </>
         )}
       </div>
+
+      {/* Session Modal */}
+      {sessionActive && (() => {
+        const exercises = workout.exercises;
+        const ex = exercises[sessionExIndex];
+        const isLast = sessionExIndex === exercises.length - 1;
+        return (
+          <div style={{
+            position: "fixed", inset: 0, zIndex: 200,
+            background: "#0F1117",
+            display: "flex", flexDirection: "column",
+            paddingTop: "env(safe-area-inset-top, 0px)",
+            paddingBottom: "env(safe-area-inset-bottom, 0px)",
+          }}>
+            {/* Session header */}
+            <div style={{
+              background: "#161925",
+              borderBottom: "1px solid #2A2D3E",
+              padding: "16px 20px",
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+            }}>
+              <div>
+                <div style={{ fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: phase.color, fontWeight: 600 }}>
+                  {workout.day} — {workout.subtitle}
+                </div>
+                <div style={{ fontSize: 13, color: "#667", marginTop: 2 }}>
+                  {sessionFinished ? "Session complete" : `Exercise ${sessionExIndex + 1} of ${exercises.length}`}
+                </div>
+              </div>
+              <button
+                onClick={closeSession}
+                style={{ background: "none", border: "none", color: "#667", fontSize: 22, cursor: "pointer", lineHeight: 1 }}
+              >×</button>
+            </div>
+
+            {sessionFinished ? (
+              /* Success screen */
+              <div style={{ flex: 1, overflowY: "auto", padding: "32px 24px", display: "flex", flexDirection: "column", alignItems: "center" }}>
+                <div style={{ fontSize: 64, marginBottom: 16 }}>🎉</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: "#5EC47A", marginBottom: 8 }}>Session Complete!</div>
+                <div style={{ fontSize: 14, color: "#AAB", lineHeight: 1.7, marginBottom: 28, textAlign: "center" }}>
+                  Great work. You finished all {exercises.length} exercises for {workout.day}.
+                </div>
+
+                {/* Per-exercise times */}
+                <div style={{ width: "100%", maxWidth: 400, marginBottom: 12 }}>
+                  {exercises.map((ex, i) => (
+                    <div key={i} style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      padding: "10px 14px",
+                      background: i % 2 === 0 ? "#161925" : "#1A1D2E",
+                      borderRadius: i === 0 ? "8px 8px 0 0" : i === exercises.length - 1 ? "0 0 8px 8px" : 0,
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 16 }}>{ex.icon}</span>
+                        <span style={{ fontSize: 13, color: "#CCD" }}>{ex.name}</span>
+                      </div>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: phase.color, fontVariantNumeric: "tabular-nums" }}>
+                        {exerciseTimes[i] !== undefined ? formatTime(exerciseTimes[i]) : "—"}
+                      </span>
+                    </div>
+                  ))}
+                  {/* Total */}
+                  <div style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    padding: "12px 14px", marginTop: 4,
+                    background: "#252840", borderRadius: 8,
+                    borderTop: `2px solid ${phase.color}`,
+                  }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#AAB" }}>Total time</span>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: "#E8E8E8", fontVariantNumeric: "tabular-nums" }}>
+                      {formatTime(exerciseTimes.reduce((a, b) => a + b, 0))}
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={closeSession}
+                  style={{
+                    marginTop: 16,
+                    background: "#1A3A28", border: "1px solid #5EC47A", borderRadius: 10,
+                    padding: "14px 40px", fontSize: 15, fontWeight: 700, color: "#5EC47A", cursor: "pointer",
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            ) : (() => {
+              const d = getDetails(ex.name);
+              return (
+                <div style={{ flex: 1, overflowY: "auto", padding: "20px", display: "flex", flexDirection: "column", gap: 16 }}>
+                  {/* Timer / Cooldown */}
+                  <div style={{ background: "#161925", border: `1px solid ${inCooldown ? "#E0884A44" : "#2A2D3E"}`, borderRadius: 12, padding: "18px 20px", textAlign: "center", minHeight: 148, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                    {inCooldown ? (
+                      <>
+                        <div style={{ fontSize: 48, fontWeight: 800, fontVariantNumeric: "tabular-nums", letterSpacing: 2, color: "#E0884A" }}>
+                          {formatTime(cooldownSeconds)}
+                        </div>
+                        <button
+                          onClick={skipCooldown}
+                          style={{
+                            marginTop: 14, background: "none", border: "1px solid #E0884A",
+                            borderRadius: 8, padding: "10px 24px", fontSize: 13, fontWeight: 700,
+                            color: "#E0884A", cursor: "pointer",
+                          }}
+                        >
+                          Skip Cooldown →
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 48, fontWeight: 800, fontVariantNumeric: "tabular-nums", letterSpacing: 2, color: timerRunning ? phase.color : "#E8E8E8" }}>
+                          {formatTime(timerSeconds)}
+                        </div>
+                        <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 14 }}>
+                          <button
+                            onClick={() => setTimerRunning((r) => !r)}
+                            style={{
+                              background: timerRunning ? "#2A1D1D" : "#1A3A28",
+                              border: `1px solid ${timerRunning ? "#C45E5E" : "#5EC47A"}`,
+                              borderRadius: 8, padding: "10px 24px",
+                              fontSize: 13, fontWeight: 700,
+                              color: timerRunning ? "#C45E5E" : "#5EC47A",
+                              cursor: "pointer",
+                            }}
+                          >
+                            {timerRunning ? "⏸ Pause" : "▶ Play"}
+                          </button>
+                          <button
+                            onClick={() => { setTimerSeconds(0); setTimerRunning(false); }}
+                            style={{
+                              background: "none", border: "1px solid #2A2D3E", borderRadius: 8,
+                              padding: "10px 20px", fontSize: 13, fontWeight: 600, color: "#667", cursor: "pointer",
+                            }}
+                          >
+                            ↺ Reset
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Nav buttons */}
+                  <div style={{ display: "flex", gap: 10 }}>
+                    {sessionExIndex > 0 && (
+                      <button
+                        onClick={() => setSessionExIndex((i) => i - 1)}
+                        style={{
+                          flex: 1, background: "#1A1D2E", border: "1px solid #2A2D3E", borderRadius: 10,
+                          padding: "13px", fontSize: 14, fontWeight: 700, color: "#AAB",
+                          cursor: "pointer", letterSpacing: 0.3,
+                        }}
+                      >
+                        ← Previous
+                      </button>
+                    )}
+                    <button
+                      onClick={() => goNextExercise(exercises)}
+                      style={{
+                        flex: 1, background: phase.color, border: "none", borderRadius: 10,
+                        padding: "13px", fontSize: 14, fontWeight: 700, color: "#fff",
+                        cursor: "pointer", letterSpacing: 0.3,
+                      }}
+                    >
+                      {isLast ? "Finished ✓" : "Next Exercise →"}
+                    </button>
+                  </div>
+
+                  {/* Exercise detail */}
+                  <div style={{ background: "#1A1D2E", border: `1px solid ${phase.color}44`, borderRadius: 12, padding: "20px" }}>
+                    <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 16 }}>
+                      <div style={{ fontSize: 32 }}>{ex.icon}</div>
+                      <div>
+                        <div style={{ fontSize: 18, fontWeight: 800, color: phase.color, lineHeight: 1.2 }}>{ex.name}</div>
+                        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                          <span style={{ background: `${phase.color}22`, color: phase.color, fontSize: 12, fontWeight: 700, padding: "3px 10px", borderRadius: 4 }}>{ex.sets} sets</span>
+                          <span style={{ background: "#252840", color: "#AAB", fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: 4 }}>{ex.reps}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Coach's note */}
+                    <div style={{ background: "#12151F", borderLeft: `3px solid ${phase.color}`, borderRadius: 8, padding: "12px 14px", marginBottom: 16 }}>
+                      <div style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: phase.color, fontWeight: 700, marginBottom: 4 }}>Coach's note</div>
+                      <div style={{ fontSize: 13, color: "#AAB", lineHeight: 1.5 }}>{ex.note}</div>
+                    </div>
+
+                    {/* YouTube link */}
+                    <a
+                      href={ytSearch(ex.name, d)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                        background: "#FF000018", border: "1px solid #FF000044", borderRadius: 10,
+                        padding: "11px", textDecoration: "none", color: "#FF6B6B",
+                        fontWeight: 700, fontSize: 13, marginBottom: 16,
+                      }}
+                    >
+                      <span style={{ fontSize: 16 }}>▶</span> Watch demonstration videos
+                    </a>
+
+                    {d ? (
+                      <>
+                        {/* Steps */}
+                        <div style={{ marginBottom: 16 }}>
+                          <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase", color: "#889", fontWeight: 700, marginBottom: 10 }}>How to do it</div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                            {d.steps.map((s, i) => (
+                              <div key={i} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                                <div style={{
+                                  flexShrink: 0, width: 22, height: 22, borderRadius: "50%",
+                                  background: phase.color, color: "#fff",
+                                  display: "flex", alignItems: "center", justifyContent: "center",
+                                  fontSize: 11, fontWeight: 800, marginTop: 1,
+                                }}>{i + 1}</div>
+                                <div style={{ fontSize: 13.5, color: "#CCD", lineHeight: 1.5 }}>{s}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Form cues */}
+                        <div style={{ marginBottom: 16 }}>
+                          <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase", color: "#5EC47A", fontWeight: 700, marginBottom: 10 }}>✓ Form cues</div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                            {d.cues.map((c, i) => (
+                              <div key={i} style={{ fontSize: 13, color: "#AAB", lineHeight: 1.5, paddingLeft: 14, position: "relative" }}>
+                                <span style={{ position: "absolute", left: 0, color: "#5EC47A" }}>•</span>{c}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Avoid */}
+                        <div style={{ marginBottom: d.shoulder ? 16 : 0 }}>
+                          <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase", color: "#E0884A", fontWeight: 700, marginBottom: 10 }}>✕ Avoid</div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                            {d.mistakes.map((m, i) => (
+                              <div key={i} style={{ fontSize: 13, color: "#AAB", lineHeight: 1.5, paddingLeft: 14, position: "relative" }}>
+                                <span style={{ position: "absolute", left: 0, color: "#E0884A" }}>•</span>{m}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Shoulder note */}
+                        {d.shoulder && (
+                          <div style={{ background: "#1E2A3A", border: "1px solid #2E5A7A", borderRadius: 10, padding: "13px 15px" }}>
+                            <div style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: "#6BB6E0", fontWeight: 700, marginBottom: 5, display: "flex", alignItems: "center", gap: 6 }}>
+                              🩹 Shoulder note
+                            </div>
+                            <div style={{ fontSize: 13, color: "#AECDE0", lineHeight: 1.5 }}>{d.shoulder}</div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 13, color: "#778", lineHeight: 1.6 }}>
+                        Focus on slow, controlled reps and stop a rep or two short of failure while you're learning the movement.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        );
+      })()}
 
       {/* Exercise Detail Modal */}
       {selectedExercise && (() => {
