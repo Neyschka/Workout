@@ -1,0 +1,10 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Lever">
+  <defs>
+    <linearGradient id="leverG" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#74C7E8"></stop>
+      <stop offset="1" stop-color="#FFFFFF"></stop>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#0F1117"></rect>
+  <path d="M174 128 H246 V312 H338 V384 H174 Z" fill="url(#leverG)"></path>
+</svg>

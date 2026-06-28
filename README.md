@@ -1,4 +1,4 @@
-# Skill Unlocks — Calisthenics Plan
+# Lever — Calisthenics Plan
 
 A personal calisthenics training app (Vite + React), deployed to GitHub Pages.
 
