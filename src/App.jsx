@@ -800,7 +800,7 @@ export default function App() {
                   <div style={{ fontSize: 22, flexShrink: 0, marginTop: 1 }}>{ex.icon}</div>
                   <div style={{ flex: 1 }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                      <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{ex.name}</div>
+                      <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4, color: phase.color }}>{ex.name}</div>
                       <span style={{ fontSize: 11, color: phase.color, flexShrink: 0, fontWeight: 600 }}>Details ›</span>
                     </div>
                     <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
