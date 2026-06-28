@@ -637,6 +637,7 @@ export default function App() {
   const [unlockedSkills, setUnlockedSkills] = useState(() => loadSet("cal_skills", ["deadhang", "wallhs", "ringsupport"]));
   const [completedDays, setCompletedDays] = useState(() => loadSet("cal_days", []));
   const [selectedExercise, setSelectedExercise] = useState(null);
+  const [phasePickerOpen, setPhasePickerOpen] = useState(false);
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionExIndex, setSessionExIndex] = useState(0);
   const [sessionFinished, setSessionFinished] = useState(false);
@@ -765,12 +766,8 @@ export default function App() {
       {/* Header */}
       <div style={{ background: "linear-gradient(135deg, #1A1D2E 0%, #0F1117 100%)", borderBottom: "1px solid #2A2D3E", padding: "calc(env(safe-area-inset-top, 0px) + 20px) calc(env(safe-area-inset-right, 0px) + 20px) 0 calc(env(safe-area-inset-left, 0px) + 20px)" }}>
         <div style={{ maxWidth: 640, margin: "0 auto" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-            <span style={{ fontSize: 22 }}>🤸</span>
-            <span style={{ fontSize: 11, letterSpacing: 3, textTransform: "uppercase", color: "#7B8EC8", fontWeight: 600 }}>Calisthenics</span>
-          </div>
-          <h1 style={{ margin: "0 0 16px", fontSize: 26, fontWeight: 700, letterSpacing: -0.5 }}>
-            Skill Unlocks<span style={{ color: phase.color }}>.</span>
+          <h1 style={{ margin: "0 0 16px", fontSize: 32, fontWeight: 700, letterSpacing: -1, paddingLeft: 4 }}>
+            Lever<span style={{ color: phase.color }}>.</span>
           </h1>
 
           {/* Tabs */}
@@ -805,61 +802,96 @@ export default function App() {
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "20px", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)" }}>
         {tab === "plan" && (
           <>
-            {/* Phase Selector */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 20 }}>
-              {PHASES.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => { setActivePhase(p.id); setActiveDay(0); }}
-                  style={{
-                    background: activePhase === p.id ? p.color : "#1A1D2E",
-                    border: `1px solid ${activePhase === p.id ? p.color : "#2A2D3E"}`,
-                    borderRadius: 10,
-                    padding: "10px 8px",
-                    cursor: "pointer",
-                    transition: "all 0.2s",
-                    textAlign: "center",
-                  }}
-                >
-                  <div style={{ fontSize: 10, letterSpacing: 1.5, textTransform: "uppercase", color: activePhase === p.id ? "rgba(255,255,255,0.7)" : "#555", fontWeight: 600 }}>{p.label}</div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: activePhase === p.id ? "#fff" : "#999", marginTop: 2 }}>{p.name}</div>
-                  <div style={{ fontSize: 10, color: activePhase === p.id ? "rgba(255,255,255,0.6)" : "#444", marginTop: 2 }}>{p.weeks}</div>
-                </button>
-              ))}
+            {/* Phase context bar — collapses the program block into one quiet "where am I" control */}
+            <div style={{ marginBottom: 16 }}>
+              <button
+                onClick={() => setPhasePickerOpen((o) => !o)}
+                style={{
+                  width: "100%",
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  background: "#1A1D2E",
+                  border: `1px solid ${phasePickerOpen ? phase.color : "#2A2D3E"}`,
+                  borderRadius: 10,
+                  borderBottomLeftRadius: phasePickerOpen ? 0 : 10,
+                  borderBottomRightRadius: phasePickerOpen ? 0 : 10,
+                  padding: "11px 14px", cursor: "pointer", textAlign: "left", transition: "border-color 0.2s",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+                  <div style={{ width: 8, height: 34, borderRadius: 4, background: phase.color }} />
+                  <div>
+                    <div style={{ fontSize: 10, letterSpacing: 1.4, textTransform: "uppercase", color: "#7e84a0", fontWeight: 700 }}>
+                      Phase {PHASES.findIndex((p) => p.id === activePhase) + 1} of {PHASES.length} · {phase.weeks}
+                    </div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#E8E8E8", marginTop: 1 }}>{phase.name}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#8a8fb0", fontSize: 12, fontWeight: 600 }}>
+                  Change <span style={{ fontSize: 13, display: "inline-block", transform: phasePickerOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
+                </div>
+              </button>
+
+              {phasePickerOpen && (
+                <div style={{ border: `1px solid ${phase.color}`, borderTop: "none", borderRadius: "0 0 10px 10px", overflow: "hidden" }}>
+                  {PHASES.map((p, pi) => {
+                    const on = p.id === activePhase;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => { setActivePhase(p.id); setActiveDay(0); setPhasePickerOpen(false); }}
+                        style={{
+                          width: "100%", textAlign: "left", cursor: "pointer",
+                          background: on ? `${p.color}18` : "#161925",
+                          border: "none",
+                          borderTop: pi === 0 ? "none" : "1px solid #2A2D3E",
+                          borderLeft: `3px solid ${on ? p.color : "transparent"}`,
+                          padding: "12px 14px",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: on ? "#fff" : "#bbb" }}>
+                            <span style={{ color: p.color }}>Phase {pi + 1}</span> · {p.name}
+                          </div>
+                          <span style={{ fontSize: 11, color: "#667", flexShrink: 0 }}>{p.weeks}</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: "#778", lineHeight: 1.45, marginTop: 4 }}>{p.description}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
-            {/* Phase Description */}
-            <div style={{ background: "#1A1D2E", border: `1px solid ${phase.color}33`, borderLeft: `3px solid ${phase.color}`, borderRadius: 8, padding: "12px 14px", marginBottom: 20 }}>
-              <p style={{ margin: 0, fontSize: 13, color: "#AAB", lineHeight: 1.5 }}>{phase.description}</p>
-            </div>
-
-            {/* Day Tabs */}
-            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            {/* Day selector — a single segmented control: the one clear choice on this screen */}
+            <div style={{ background: "#12151F", border: "1px solid #2A2D3E", borderRadius: 11, padding: 4, display: "flex", gap: 4, marginBottom: 10 }}>
               {workouts.map((w, i) => {
-                const dk = `${activePhase}-${i}`;
-                const done = completedDays.has(dk);
+                const on = activeDay === i;
+                const done = completedDays.has(`${activePhase}-${i}`);
                 return (
                   <button
                     key={i}
                     onClick={() => setActiveDay(i)}
                     style={{
-                      flex: 1,
-                      background: activeDay === i ? phase.color : "#1A1D2E",
-                      border: `1px solid ${activeDay === i ? phase.color : "#2A2D3E"}`,
-                      borderRadius: 8,
-                      padding: "9px 6px",
-                      cursor: "pointer",
-                      position: "relative",
+                      flex: 1, textAlign: "center", cursor: "pointer",
+                      background: on ? phase.color : "transparent",
+                      border: "none", borderRadius: 8, padding: "9px 0",
+                      fontSize: 14, fontWeight: on ? 700 : 600,
+                      color: on ? "#fff" : "#888",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+                      transition: "background 0.15s",
                     }}
                   >
-                    {done && (
-                      <span style={{ position: "absolute", top: 4, right: 6, fontSize: 10, color: "#5EC47A" }}>✓</span>
-                    )}
-                    <div style={{ fontSize: 11, fontWeight: 700, color: activeDay === i ? "rgba(255,255,255,0.7)" : "#555", letterSpacing: 1 }}>{w.day}</div>
-                    <div style={{ fontSize: 12, color: activeDay === i ? "#fff" : "#888", marginTop: 2, fontWeight: 600 }}>{w.subtitle}</div>
+                    {w.day}
+                    {done && <span style={{ fontSize: 11, color: on ? "rgba(255,255,255,0.85)" : "#5EC47A" }}>✓</span>}
                   </button>
                 );
               })}
+            </div>
+
+            {/* Active session caption */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, padding: "0 4px" }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#cfcfe0" }}>{workout.subtitle}</span>
+              {completedDays.has(dayKey) && <span style={{ fontSize: 11, color: "#5EC47A" }}>✓ completed</span>}
             </div>
 
             {/* Start Session */}
