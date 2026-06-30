@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+import { GROUPS, AXES, AXIS_LABEL, EQUIPMENT, BY_ID, exercisesByGroup, TIERS } from "./data/exerciseLibrary";
+import { SKILL_QUESTS } from "./data/skillQuests";
 
 function loadSet(key, fallback) {
   try {
@@ -149,104 +151,67 @@ const WORKOUTS = {
   ],
 };
 
-const SKILL_TREE = [
-  {
-    id: "deadhang",
-    name: "Dead Hang",
-    phase: 1,
-    icon: "🔱",
-    unlocks: ["negpullup"],
-    desc: "Foundation of all pulling movements",
-  },
-  {
-    id: "negpullup",
-    name: "Negative Pull-Up",
-    phase: 1,
-    icon: "⬇️",
-    unlocks: ["pullup"],
-    desc: "Eccentric loading builds strength fast",
-  },
-  {
-    id: "pullup",
-    name: "Full Pull-Up",
-    phase: 2,
-    icon: "⬆️",
-    unlocks: ["muscleup", "frontlever"],
-    desc: "The gateway skill",
-  },
-  {
-    id: "wallhs",
-    name: "Wall Handstand",
-    phase: 1,
-    icon: "🧱",
-    unlocks: ["freehs"],
-    desc: "Build shoulder strength and body alignment",
-  },
-  {
-    id: "freehs",
-    name: "Freestanding HS",
-    phase: 3,
-    icon: "🤸",
-    unlocks: ["hspushup"],
-    desc: "Balance + strength unified",
-  },
-  {
-    id: "hspushup",
-    name: "Handstand Push-Up",
-    phase: 3,
-    icon: "💥",
-    unlocks: [],
-    desc: "Elite pressing skill",
-  },
-  {
-    id: "ringsupport",
-    name: "Ring Support Hold",
-    phase: 1,
-    icon: "💍",
-    unlocks: ["ringdip"],
-    desc: "Stabiliser muscles unlocked",
-  },
-  {
-    id: "ringdip",
-    name: "Ring Dip",
-    phase: 2,
-    icon: "💪",
-    unlocks: ["muscleup"],
-    desc: "Full upper body control",
-  },
-  {
-    id: "muscleup",
-    name: "Muscle-Up",
-    phase: 3,
-    icon: "👑",
-    unlocks: [],
-    desc: "The king — pull + push in one",
-  },
-  {
-    id: "lsittuck",
-    name: "Tuck L-Sit",
-    phase: 2,
-    icon: "✈️",
-    unlocks: ["lsit"],
-    desc: "Hip flexor and core strength",
-  },
-  {
-    id: "lsit",
-    name: "Full L-Sit",
-    phase: 3,
-    icon: "🚀",
-    unlocks: ["frontlever"],
-    desc: "Complete core control",
-  },
-  {
-    id: "frontlever",
-    name: "Front Lever Tuck",
-    phase: 3,
-    icon: "🎯",
-    unlocks: [],
-    desc: "Advanced pulling + core",
-  },
-];
+// Equipment you can own/not-own. Floor + wall are excluded — always assumed available.
+const ALL_EQUIPMENT_KEYS = Object.keys(EQUIPMENT).filter((k) => k !== "floor" && k !== "wall");
+
+// The old Skill Tree used different ids. Map them so unlocked skills already saved
+// on a device migrate transparently to the unified library's ids.
+const OLD_TO_NEW_SKILL_ID = {
+  wallhs: "wallhandstand",
+  freehs: "freehandstandkickup",
+  hspushup: "wallhspushup",
+  lsittuck: "tuckLsit",
+  lsit: "Lsit",
+  frontlever: "tuckfrontlever",
+};
+
+// The plan (WORKOUTS) predates the unified library and uses slightly different
+// display names — this maps each plan exercise's free-text name to its stable
+// library id, so the plan can be tagged with group/tier/equipment without
+// rewriting WORKOUTS itself.
+const PLAN_TO_LIBRARY_ID = {
+  "Wall Push-Up → Incline Push-Up": "inclinepushup",
+  "Band External Rotation": "bandexternalrotation",
+  "Dead Hang": "deadhang",
+  "Bulgarian Split Squat (bodyweight)": "bulgarianbw",
+  "Plank Hold": "plank",
+  "Negative Pull-Up": "negpullup",
+  "Ring Row (low rings)": "ringrowupright",
+  "Band Face Pull": "facepull",
+  "Glute Bridge": "glutebridge",
+  "Hollow Body Hold": "hollowbody",
+  "Push-Up (standard)": "pushup",
+  "Ring Support Hold": "ringsupport",
+  "Bulgarian Split Squat (dumbbell)": "bulgarianbw",
+  "Dead Bug": "deadbug",
+  "Push-Up (feet elevated)": "feetelevatedpushup",
+  "Dips (assisted → full)": "dips",
+  "Pike Push-Up": "pikepushup",
+  "Bulgarian Split Squat (weighted)": "bulgarianweighted",
+  "L-Sit Progression": "tuckLsit",
+  "Pull-Up (band assisted or full)": "pullup",
+  "Ring Row (body horizontal)": "ringrowhorizontal",
+  "Dumbbell Row": "dumbbellrow",
+  "Romanian Deadlift (dumbbells)": "romaniandeadlift",
+  "Wall Handstand (chest to wall)": "wallhandstand",
+  "Handstand Shoulder Taps (wall)": "handstandshouldertaps",
+  "Ring Support + Dip": "ringdip",
+  "Dumbbell Lateral Raise": "lateralraise",
+  "Freestanding Handstand Kick-Up": "freehandstandkickup",
+  "Handstand Wall Run": "handstandwallrun",
+  "Pike Push-Up (deficit)": "deficitpikepushup",
+  "Bulgarian Split Squat (heavy)": "bulgarianweighted",
+  "L-Sit (parallel bars / rings)": "Lsit",
+  "Muscle-Up Progression": "muscleup",
+  "Pull-Up (weighted or archer)": "weightedpullup",
+  "Ring Dip": "ringdip",
+  "Romanian Deadlift (heavy)": "romaniandeadlift",
+  "Planche Tuck Hold": "planchetuck",
+  "Handstand Push-Up (wall)": "wallhspushup",
+  "Human Flag Intro (side lean)": "humanflagintro",
+  "Ring Muscle-Up": "ringmuscleup",
+  "Dumbbell Lateral Raise + External Rotation": "lateralraise",
+};
 
 // Ordered most-specific-first. getDetails() returns the first whose `match` the exercise name contains.
 const EXERCISE_DETAILS = [
@@ -630,14 +595,64 @@ function ytSearch(name, details) {
   return `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`;
 }
 
+// --- Skill Tree helpers ---
+function axisPoint(i, n, radius, cx, cy, frac = 1) {
+  const angle = (Math.PI * 2 * i) / n - Math.PI / 2;
+  return { x: cx + radius * frac * Math.cos(angle), y: cy + radius * frac * Math.sin(angle) };
+}
+
+// Highest tier of `group` the user has actually marked themselves able to do —
+// not just scheduled. Avoids "I added one hard exercise to my plan" inflating the tier.
+function masteredTierForGroup(group, masteredIds) {
+  let max = 0;
+  exercisesByGroup(group).forEach((e) => {
+    if (masteredIds.has(e.id) && e.tier > max) max = e.tier;
+  });
+  return max;
+}
+
+// Weighted 0..1 exposure to a radar axis (push/pull/legs/core/shoulders/grip),
+// based on what the user has marked themselves able to do.
+function axisValue(axis, masteredIds) {
+  let max = 0;
+  Object.values(BY_ID).forEach((e) => {
+    if (masteredIds.has(e.id) && e.axes && e.axes[axis]) {
+      max = Math.max(max, e.axes[axis] * (e.tier / 5));
+    }
+  });
+  return max;
+}
+
+// Slot counts per muscle group across this phase's Day A–C — the plan's own balance.
+function weeklyGroupCounts(phaseId) {
+  const counts = { push: 0, pull: 0, legs: 0, core: 0, shoulders: 0, grip: 0 };
+  WORKOUTS[phaseId].forEach((day) => {
+    day.exercises.forEach((ex) => {
+      const lib = BY_ID[PLAN_TO_LIBRARY_ID[ex.name]];
+      if (lib && counts[lib.group] !== undefined) counts[lib.group] += 1;
+    });
+  });
+  return counts;
+}
+
+// Exercise ids for everything in a completed day — used to seed/grow "mastered" status.
+function exerciseIdsForDay(phaseId, dayIndex) {
+  const day = WORKOUTS[phaseId] && WORKOUTS[phaseId][dayIndex];
+  if (!day) return [];
+  return day.exercises.map((ex) => PLAN_TO_LIBRARY_ID[ex.name]).filter(Boolean);
+}
+
 export default function App() {
   const [activePhase, setActivePhase] = useState("foundation");
   const [activeDay, setActiveDay] = useState(0);
   const [tab, setTab] = useState("plan");
-  const [unlockedSkills, setUnlockedSkills] = useState(() => loadSet("cal_skills", ["deadhang", "wallhs", "ringsupport"]));
+  const [unlockedSkills, setUnlockedSkills] = useState(() => loadSet("cal_skills", ["deadhang", "wallhandstand"]));
   const [completedDays, setCompletedDays] = useState(() => loadSet("cal_days", []));
   const [selectedExercise, setSelectedExercise] = useState(null);
   const [phasePickerOpen, setPhasePickerOpen] = useState(false);
+  const [ownedEquipment, setOwnedEquipment] = useState(() => loadSet("cal_equipment", ALL_EQUIPMENT_KEYS));
+  const [equipmentOpen, setEquipmentOpen] = useState(false);
+  const [expandedTrackGroup, setExpandedTrackGroup] = useState(null);
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionExIndex, setSessionExIndex] = useState(0);
   const [sessionFinished, setSessionFinished] = useState(false);
@@ -651,6 +666,37 @@ export default function App() {
 
   useEffect(() => { saveSet("cal_skills", unlockedSkills); }, [unlockedSkills]);
   useEffect(() => { saveSet("cal_days", completedDays); }, [completedDays]);
+  useEffect(() => { saveSet("cal_equipment", ownedEquipment); }, [ownedEquipment]);
+
+  // One-time migration: the Skill Tree used different exercise ids before the
+  // unified library rebuild. Remap anything already unlocked on this device.
+  useEffect(() => {
+    setUnlockedSkills((prev) => {
+      let changed = false;
+      const next = new Set();
+      prev.forEach((id) => {
+        const mapped = OLD_TO_NEW_SKILL_ID[id] || id;
+        if (mapped !== id) changed = true;
+        next.add(mapped);
+      });
+      return changed ? next : prev;
+    });
+  }, []);
+
+  // One-time backfill: a day you'd already marked complete is real evidence you can
+  // do those exercises, even though the mastery system didn't exist yet.
+  useEffect(() => {
+    setUnlockedSkills((prev) => {
+      const next = new Set(prev);
+      completedDays.forEach((key) => {
+        const sep = key.lastIndexOf("-");
+        const pid = key.slice(0, sep);
+        const dayIdx = parseInt(key.slice(sep + 1), 10);
+        exerciseIdsForDay(pid, dayIdx).forEach((id) => next.add(id));
+      });
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (timerRunning) {
@@ -732,7 +778,7 @@ export default function App() {
   const resetProgress = () => {
     if (window.confirm("Reset all completed sessions and unlocked skills? This cannot be undone.")) {
       setCompletedDays(new Set());
-      setUnlockedSkills(new Set(["deadhang", "wallhs", "ringsupport"]));
+      setUnlockedSkills(new Set(["deadhang", "wallhandstand"]));
     }
   };
 
@@ -753,22 +799,54 @@ export default function App() {
   const toggleDay = () => {
     setCompletedDays((prev) => {
       const next = new Set(prev);
-      if (next.has(dayKey)) next.delete(dayKey);
-      else next.add(dayKey);
+      if (next.has(dayKey)) {
+        next.delete(dayKey);
+      } else {
+        next.add(dayKey);
+        // Completing a day is real evidence — grow "mastered" with its exercises.
+        setUnlockedSkills((sk) => {
+          const grown = new Set(sk);
+          exerciseIdsForDay(activePhase, activeDay).forEach((id) => grown.add(id));
+          return grown;
+        });
+      }
       return next;
     });
   };
 
-  const phaseSkills = SKILL_TREE.filter((s) => s.phase <= (activePhase === "foundation" ? 1 : activePhase === "build" ? 2 : 3));
+  const toggleEquipment = (key) => {
+    setOwnedEquipment((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const missingEquipment = (lib) => {
+    if (!lib) return [];
+    const req = (lib.equipment || []).filter((e) => e !== "floor" && e !== "wall");
+    return req.filter((e) => !ownedEquipment.has(e));
+  };
+
+  const weeklyCounts = weeklyGroupCounts(activePhase);
+  const maxWeeklyCount = Math.max(1, ...Object.values(weeklyCounts));
 
   return (
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", minHeight: "100vh", background: "#0F1117", color: "#E8E8E8" }}>
       {/* Header */}
       <div style={{ background: "linear-gradient(135deg, #1A1D2E 0%, #0F1117 100%)", borderBottom: "1px solid #2A2D3E", padding: "calc(env(safe-area-inset-top, 0px) + 20px) calc(env(safe-area-inset-right, 0px) + 20px) 0 calc(env(safe-area-inset-left, 0px) + 20px)" }}>
         <div style={{ maxWidth: 640, margin: "0 auto" }}>
-          <h1 style={{ margin: "0 0 16px", fontSize: 32, fontWeight: 700, letterSpacing: -1, paddingLeft: 4 }}>
-            Lever<span style={{ color: phase.color }}>.</span>
-          </h1>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <h1 style={{ margin: 0, fontSize: 32, fontWeight: 700, letterSpacing: -1, paddingLeft: 4 }}>
+              Lever<span style={{ color: phase.color }}>.</span>
+            </h1>
+            <button
+              onClick={() => setEquipmentOpen(true)}
+              aria-label="Equipment settings"
+              style={{ background: "none", border: "1px solid #2A2D3E", borderRadius: 8, width: 34, height: 34, color: "#8a8fb0", fontSize: 16, cursor: "pointer", flexShrink: 0 }}
+            >⚙️</button>
+          </div>
 
           {/* Tabs */}
           <div style={{ display: "flex", gap: 0 }}>
@@ -919,44 +997,80 @@ export default function App() {
 
             {/* Exercises */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
-              {workout.exercises.map((ex, i) => (
-                <button
-                  key={i}
-                  onClick={() => setSelectedExercise(ex)}
-                  style={{
-                    background: "#1A1D2E",
-                    border: "1px solid #2A2D3E",
-                    borderRadius: 10,
-                    padding: "14px 16px",
-                    display: "flex",
-                    gap: 12,
-                    alignItems: "flex-start",
-                    textAlign: "left",
-                    cursor: "pointer",
-                    width: "100%",
-                    transition: "border-color 0.15s",
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.borderColor = phase.color)}
-                  onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#2A2D3E")}
-                >
-                  <div style={{ fontSize: 22, flexShrink: 0, marginTop: 1 }}>{ex.icon}</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                      <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4, color: phase.color }}>{ex.name}</div>
-                      <span style={{ fontSize: 11, color: phase.color, flexShrink: 0, fontWeight: 600 }}>Details ›</span>
+              {workout.exercises.map((ex, i) => {
+                const lib = BY_ID[PLAN_TO_LIBRARY_ID[ex.name]];
+                const missing = missingEquipment(lib);
+                return (
+                  <button
+                    key={i}
+                    onClick={() => setSelectedExercise(ex)}
+                    style={{
+                      background: "#1A1D2E",
+                      border: "1px solid #2A2D3E",
+                      borderRadius: 10,
+                      padding: "14px 16px",
+                      display: "flex",
+                      gap: 12,
+                      alignItems: "flex-start",
+                      textAlign: "left",
+                      cursor: "pointer",
+                      width: "100%",
+                      transition: "border-color 0.15s",
+                      opacity: missing.length ? 0.5 : 1,
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = phase.color)}
+                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#2A2D3E")}
+                  >
+                    <div style={{ fontSize: 22, flexShrink: 0, marginTop: 1 }}>{ex.icon}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4, color: phase.color }}>{ex.name}</div>
+                        <span style={{ fontSize: 11, color: phase.color, flexShrink: 0, fontWeight: 600 }}>Details ›</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                        <span style={{ background: `${phase.color}22`, color: phase.color, fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 4 }}>
+                          {ex.sets} sets
+                        </span>
+                        <span style={{ background: "#252840", color: "#AAB", fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 4 }}>
+                          {ex.reps}
+                        </span>
+                        {missing.length > 0 && (
+                          <span style={{ background: "#3A2A1A", color: "#E0A23A", fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 4 }}>
+                            Need: {missing.map((m) => EQUIPMENT[m]).join(", ")}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#778", lineHeight: 1.5 }}>{ex.note}</div>
                     </div>
-                    <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
-                      <span style={{ background: `${phase.color}22`, color: phase.color, fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 4 }}>
-                        {ex.sets} sets
-                      </span>
-                      <span style={{ background: "#252840", color: "#AAB", fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 4 }}>
-                        {ex.reps}
-                      </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Weekly muscle balance */}
+            <div style={{ background: "#1A1D2E", border: "1px solid #2A2D3E", borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: "#7e84a0", marginBottom: 10 }}>
+                This week's muscle balance
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {Object.values(GROUPS).map((g) => {
+                  const count = weeklyCounts[g.id] || 0;
+                  const widthPct = Math.max(10, (count / maxWeeklyCount) * 100);
+                  return (
+                    <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 14, width: 20, textAlign: "center" }}>{g.icon}</span>
+                      <span style={{ fontSize: 12, color: "#AAB", fontWeight: 600, width: 72, flexShrink: 0 }}>{g.name}</span>
+                      <div style={{ flex: 1, height: 7, background: "#0F1117", borderRadius: 4, overflow: "hidden" }}>
+                        <div style={{ width: `${widthPct}%`, height: "100%", background: g.color, borderRadius: 4 }} />
+                      </div>
+                      <span style={{ fontSize: 12, color: "#667", fontWeight: 700, width: 18, textAlign: "right" }}>{count}</span>
                     </div>
-                    <div style={{ fontSize: 12, color: "#778", lineHeight: 1.5 }}>{ex.note}</div>
-                  </div>
-                </button>
-              ))}
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 11, color: "#556", marginTop: 10, lineHeight: 1.4 }}>
+                Slot counts across Day A–C this phase — the plan's own balance, per muscle group.
+              </div>
             </div>
 
             {/* Rest Note */}
@@ -967,69 +1081,221 @@ export default function App() {
           </>
         )}
 
-        {tab === "skills" && (
-          <>
-            <p style={{ fontSize: 13, color: "#778", marginBottom: 16, lineHeight: 1.6 }}>
-              Tap skills as you unlock them. These are the progressions your training is building toward — each one feeds into the next.
-            </p>
+        {tab === "skills" && (() => {
+          const radarValues = AXES.map((a) => axisValue(a, unlockedSkills));
+          const n = AXES.length;
+          const cx = 130, cy = 118, R = 84;
+          const ringPts = (frac) => AXES.map((_, i) => { const p = axisPoint(i, n, R, cx, cy, frac); return `${p.x},${p.y}`; }).join(" ");
+          const dataPts = AXES.map((_, i) => { const p = axisPoint(i, n, R, cx, cy, Math.max(0.06, radarValues[i])); return `${p.x},${p.y}`; }).join(" ");
 
-            {[1, 2, 3].map((phaseNum) => {
-              const phaseName = ["Foundation", "Build", "Skills"][phaseNum - 1];
-              const phaseColor = [PHASES[0].color, PHASES[1].color, PHASES[2].color][phaseNum - 1];
-              const skills = SKILL_TREE.filter((s) => s.phase === phaseNum);
-              return (
-                <div key={phaseNum} style={{ marginBottom: 24 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                    <div style={{ width: 24, height: 2, background: phaseColor }} />
-                    <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: phaseColor }}>
-                      Phase {phaseNum} — {phaseName}
-                    </span>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                    {skills.map((skill) => {
-                      const unlocked = unlockedSkills.has(skill.id);
-                      return (
-                        <button
-                          key={skill.id}
-                          onClick={() => toggleSkill(skill.id)}
-                          style={{
-                            background: unlocked ? `${phaseColor}18` : "#1A1D2E",
-                            border: `1px solid ${unlocked ? phaseColor : "#2A2D3E"}`,
-                            borderRadius: 10,
-                            padding: "14px 12px",
-                            cursor: "pointer",
-                            textAlign: "left",
-                            transition: "all 0.2s",
-                            position: "relative",
-                          }}
-                        >
-                          {unlocked && (
-                            <div style={{
-                              position: "absolute", top: 8, right: 8,
-                              width: 16, height: 16, borderRadius: "50%",
-                              background: phaseColor,
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                              fontSize: 9, color: "#fff", fontWeight: 900,
-                            }}>✓</div>
-                          )}
-                          <div style={{ fontSize: 20, marginBottom: 6 }}>{skill.icon}</div>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: unlocked ? "#E8E8E8" : "#888", marginBottom: 4 }}>{skill.name}</div>
-                          <div style={{ fontSize: 11, color: "#556", lineHeight: 1.4 }}>{skill.desc}</div>
-                          {skill.unlocks.length > 0 && (
-                            <div style={{ marginTop: 8, fontSize: 10, color: phaseColor + "99" }}>
-                              → {skill.unlocks.map((uid) => SKILL_TREE.find((s) => s.id === uid)?.name).join(", ")}
+          return (
+            <>
+              <p style={{ fontSize: 13, color: "#778", marginBottom: 18, lineHeight: 1.6 }}>
+                Your current level across every muscle group — based on what you've actually marked yourself able to do, not just what's scheduled — and the calisthenics skills you're building toward. Tap a track to see every exercise at each tier.
+              </p>
+
+              {/* Radar */}
+              <div style={{ background: "#161925", border: "1px solid #2A2D3E", borderRadius: 14, padding: "16px 10px 10px", marginBottom: 22, display: "flex", justifyContent: "center" }}>
+                <svg width="260" height="244" viewBox="0 0 260 244">
+                  {[0.25, 0.5, 0.75, 1].map((f, idx) => (
+                    <polygon key={idx} points={ringPts(f)} fill="none" stroke="#2A2D3E" strokeWidth="1" />
+                  ))}
+                  {AXES.map((_, i) => {
+                    const p = axisPoint(i, n, R, cx, cy, 1);
+                    return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="#2A2D3E" strokeWidth="1" />;
+                  })}
+                  <polygon points={dataPts} fill={`${phase.color}33`} stroke={phase.color} strokeWidth="2" />
+                  {AXES.map((a, i) => {
+                    const p = axisPoint(i, n, R, cx, cy, 1.24);
+                    const anchor = p.x < cx - 6 ? "end" : p.x > cx + 6 ? "start" : "middle";
+                    return (
+                      <text key={a} x={p.x} y={p.y} fontSize="11" fontWeight="700" fill="#8a8fb0" textAnchor={anchor} dominantBaseline="middle">
+                        {AXIS_LABEL[a]}
+                      </text>
+                    );
+                  })}
+                </svg>
+              </div>
+
+              {/* Muscle-group tracks */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 26 }}>
+                {Object.values(GROUPS).map((g) => {
+                  const curTier = masteredTierForGroup(g.id, unlockedSkills);
+                  const isOpen = expandedTrackGroup === g.id;
+                  return (
+                    <div key={g.id} style={{ background: "#161925", border: "1px solid #2A2D3E", borderRadius: 12, overflow: "hidden" }}>
+                      <button
+                        onClick={() => setExpandedTrackGroup(isOpen ? null : g.id)}
+                        style={{ width: "100%", display: "flex", alignItems: "center", gap: 9, padding: "14px 16px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+                      >
+                        <span style={{ fontSize: 18 }}>{g.icon}</span>
+                        <span style={{ fontSize: 14, fontWeight: 800, color: g.color }}>{g.name}</span>
+                        <span style={{ marginLeft: "auto", fontSize: 11, color: "#667", fontWeight: 600 }}>Tier {curTier || "–"} / 5</span>
+                        <span style={{ fontSize: 11, color: "#556", transform: isOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>▾</span>
+                      </button>
+                      <div style={{ padding: "0 16px 14px" }}>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          {[1, 2, 3, 4, 5].map((t) => (
+                            <div key={t} style={{
+                              flex: 1, height: 8, borderRadius: 4,
+                              background: t <= curTier ? g.color : "transparent",
+                              border: t > curTier ? "1px solid #2A2D3E" : "none",
+                            }} />
+                          ))}
+                        </div>
+                      </div>
+                      {isOpen && (
+                        <div style={{ borderTop: "1px solid #2A2D3E", padding: "14px 16px 16px", display: "flex", flexDirection: "column", gap: 14 }}>
+                          {[1, 2, 3, 4, 5].map((t) => {
+                            const exs = exercisesByGroup(g.id).filter((e) => e.tier === t);
+                            if (exs.length === 0) return null;
+                            return (
+                              <div key={t}>
+                                <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: t <= curTier ? g.color : "#556", marginBottom: 6 }}>
+                                  Tier {t} · {TIERS[t]}
+                                </div>
+                                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                  {exs.map((e) => {
+                                    const mastered = unlockedSkills.has(e.id);
+                                    const missing = missingEquipment(e);
+                                    return (
+                                      <button
+                                        key={e.id}
+                                        onClick={() => toggleSkill(e.id)}
+                                        style={{
+                                          display: "flex", alignItems: "center", gap: 10,
+                                          background: mastered ? `${g.color}18` : "#0F1117",
+                                          border: `1px solid ${mastered ? g.color : "#2A2D3E"}`,
+                                          borderRadius: 8, padding: "8px 10px", cursor: "pointer",
+                                          opacity: missing.length ? 0.6 : 1, width: "100%",
+                                        }}
+                                      >
+                                        <span style={{ fontSize: 15 }}>{e.icon}</span>
+                                        <span style={{ fontSize: 12.5, fontWeight: 600, color: mastered ? "#E8E8E8" : "#999", flex: 1, textAlign: "left" }}>{e.name}</span>
+                                        {missing.length > 0 && <span style={{ fontSize: 9.5, color: "#A0683A", flexShrink: 0 }}>need {missing.map((m) => EQUIPMENT[m]).join(", ")}</span>}
+                                        {mastered && <span style={{ fontSize: 11, color: g.color, flexShrink: 0 }}>✓</span>}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Skill quests */}
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#7e84a0", marginBottom: 4 }}>Skill Quests</div>
+              <p style={{ fontSize: 12.5, color: "#778", margin: "0 0 14px", lineHeight: 1.5 }}>Tap a step once you can do it. These cut across muscle groups — the fun, linear goals.</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {SKILL_QUESTS.map((q) => {
+                  const doneCount = q.steps.filter((id) => unlockedSkills.has(id)).length;
+                  return (
+                    <div key={q.id} style={{ background: "#161925", border: "1px solid #2A2D3E", borderRadius: 12, padding: "13px 14px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 3 }}>
+                        <span style={{ fontSize: 17 }}>{q.icon}</span>
+                        <span style={{ fontSize: 14, fontWeight: 800 }}>{q.name}</span>
+                        <span style={{ marginLeft: "auto", fontSize: 11, color: q.color, fontWeight: 700 }}>{doneCount}/{q.steps.length}</span>
+                      </div>
+                      <div style={{ fontSize: 11.5, color: "#778", marginBottom: 11, lineHeight: 1.4 }}>{q.goal}</div>
+                      <div style={{ display: "flex", alignItems: "center", overflowX: "auto", paddingBottom: 2 }}>
+                        {q.steps.map((id, i) => {
+                          const e = BY_ID[id];
+                          if (!e) return null;
+                          const unlocked = unlockedSkills.has(id);
+                          return (
+                            <div key={id} style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+                              <button
+                                onClick={() => toggleSkill(id)}
+                                style={{
+                                  display: "flex", alignItems: "center", gap: 6,
+                                  background: unlocked ? `${q.color}22` : "#0F1117",
+                                  border: `1px solid ${unlocked ? q.color : "#2A2D3E"}`,
+                                  borderRadius: 18, padding: "6px 11px 6px 8px",
+                                  cursor: "pointer", whiteSpace: "nowrap",
+                                }}
+                              >
+                                <span style={{ fontSize: 14 }}>{e.icon}</span>
+                                <span style={{ fontSize: 11.5, fontWeight: 600, color: unlocked ? "#E8E8E8" : "#888" }}>{e.name}</span>
+                                {unlocked && <span style={{ fontSize: 10, color: q.color }}>✓</span>}
+                              </button>
+                              {i < q.steps.length - 1 && <span style={{ color: "#3f4456", fontSize: 14, margin: "0 4px", flexShrink: 0 }}>→</span>}
                             </div>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </>
-        )}
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          );
+        })()}
       </div>
+
+      {/* Equipment Modal */}
+      {equipmentOpen && (
+        <div
+          onClick={() => setEquipmentOpen(false)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 150,
+            background: "rgba(0,0,0,0.7)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 16, overflowY: "auto",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#161925", border: "1px solid #2A2D3E", borderRadius: 16,
+              width: "100%", maxWidth: 420, maxHeight: "85vh", margin: "auto",
+              padding: "22px 20px", overflowY: "auto",
+              boxShadow: "0 12px 48px rgba(0,0,0,0.6)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <span style={{ fontSize: 17, fontWeight: 800 }}>Your equipment</span>
+              <button
+                onClick={() => setEquipmentOpen(false)}
+                style={{ background: "#252840", border: "none", borderRadius: 8, width: 30, height: 30, color: "#AAB", fontSize: 17, cursor: "pointer" }}
+              >×</button>
+            </div>
+            <p style={{ fontSize: 12.5, color: "#778", margin: "0 0 16px", lineHeight: 1.5 }}>
+              Exercises that need gear you don't have are greyed out across the Workout Plan and Skill Tree. Floor space and a wall are always assumed.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {ALL_EQUIPMENT_KEYS.map((key) => {
+                const owned = ownedEquipment.has(key);
+                return (
+                  <button
+                    key={key}
+                    onClick={() => toggleEquipment(key)}
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      background: owned ? "#1A3A2818" : "#1A1D2E",
+                      border: `1px solid ${owned ? "#5EC47A" : "#2A2D3E"}`,
+                      borderRadius: 10, padding: "11px 14px", cursor: "pointer",
+                    }}
+                  >
+                    <span style={{ fontSize: 13.5, fontWeight: 600, color: owned ? "#E8E8E8" : "#888" }}>{EQUIPMENT[key]}</span>
+                    <span style={{
+                      width: 20, height: 20, borderRadius: 6, flexShrink: 0,
+                      border: `2px solid ${owned ? "#5EC47A" : "#444"}`,
+                      background: owned ? "#5EC47A" : "transparent",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 11, color: "#0F1117", fontWeight: 900,
+                    }}>{owned ? "✓" : ""}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Session Modal */}
       {sessionActive && (() => {
