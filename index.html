@@ -18,6 +18,12 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; background: #0F1117; }
   #root { min-height: 100vh; }
+  /* Subtle, thin horizontal scrollbars for overflowing rows (skill quests, picker chips) */
+  .subtle-scroll { scrollbar-width: thin; scrollbar-color: #2A2D3E transparent; }
+  .subtle-scroll::-webkit-scrollbar { height: 4px; }
+  .subtle-scroll::-webkit-scrollbar-track { background: transparent; }
+  .subtle-scroll::-webkit-scrollbar-thumb { background: #2A2D3E; border-radius: 4px; }
+  .subtle-scroll::-webkit-scrollbar-thumb:hover { background: #3f4456; }
 </style>
 </head>
 <body>

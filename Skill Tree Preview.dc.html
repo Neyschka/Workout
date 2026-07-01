@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>* { box-sizing: border-box; } body { margin: 0; }</style>
+</helmet>
+<div style="min-height:100vh; background:#0F1117; font-family:'Segoe UI',system-ui,sans-serif; color:#E8E8E8; display:flex; justify-content:center; padding:30px 16px;">
+  <div style="width:100%; max-width:640px;">
+    <div style="font-size:11px; color:#556; margin-bottom:10px;">Preview of the new Skill Tree tab — read-only: exercises check off automatically (with a date) when you complete a workout that includes them; tapping one opens the exercise-info modal. Visual sanity check only, not the real app shell.</div>
+    <div style="background:#161925; border:1px solid #2A2D3E; border-radius:14px; padding:16px 10px 10px; margin-bottom:22px; display:flex; justify-content:center;">
+      <div style="position:relative; width:260px; height:244px;">
+        <svg width="260" height="244" viewBox="0 0 260 244" style="position:absolute; left:0; top:0;">
+          <sc-for list="{{ rings }}" as="ring" hint-placeholder-count="4">
+            <polygon points="{{ ring.points }}" fill="none" stroke="#2A2D3E" stroke-width="1"></polygon>
+          </sc-for>
+          <sc-for list="{{ axisLines }}" as="al" hint-placeholder-count="6">
+            <line x1="{{ al.x1 }}" y1="{{ al.y1 }}" x2="{{ al.x2 }}" y2="{{ al.y2 }}" stroke="#2A2D3E" stroke-width="1"></line>
+          </sc-for>
+          <polygon points="{{ dataPolygonPoints }}" fill="#4A90A433" stroke="#4A90A4" stroke-width="2"></polygon>
+        </svg>
+        <sc-for list="{{ axisLabels }}" as="al" hint-placeholder-count="6">
+          <div style="position:absolute; left:{{ al.x }}px; top:{{ al.y }}px; transform:{{ al.transform }}; font-size:11px; font-weight:700; color:#8a8fb0; white-space:nowrap;">{{ al.label }}</div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:12px; margin-bottom:26px;">
+      <sc-for list="{{ tracks }}" as="g" hint-placeholder-count="5">
+        <div style="background:#161925; border:1px solid #2A2D3E; border-radius:12px; overflow:hidden;">
+          <div style="display:flex; align-items:center; gap:9px; padding:14px 16px; cursor:pointer;" onClick="{{ g.toggleOpen }}">
+            <span style="font-size:18px;">{{ g.icon }}</span>
+            <span style="font-size:14px; font-weight:800; color:{{ g.color }};">{{ g.name }}</span>
+            <span style="margin-left:auto; font-size:11px; color:#667; font-weight:600;">{{ g.tierLabel }}</span>
+            <span style="font-size:11px; color:#556;">{{ g.caret }}</span>
+          </div>
+          <div style="padding:0 16px 14px;">
+            <div style="display:flex; gap:4px;">
+              <sc-for list="{{ g.rungs }}" as="r" hint-placeholder-count="5">
+                <div style="flex:1; height:8px; border-radius:4px; background:{{ r.bg }}; border:{{ r.border }};"></div>
+              </sc-for>
+            </div>
+          </div>
+          <sc-if value="{{ g.isOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="border-top:1px solid #2A2D3E; padding:14px 16px 16px; display:flex; flex-direction:column; gap:14px;">
+              <sc-for list="{{ g.tiers }}" as="tg" hint-placeholder-count="5">
+                <div>
+                  <div style="font-size:10.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:{{ tg.labelColor }}; margin-bottom:6px;">{{ tg.heading }}</div>
+                  <div style="display:flex; flex-direction:column; gap:6px;">
+                    <sc-for list="{{ tg.exs }}" as="ex" hint-placeholder-count="2">
+                      <button style="display:flex; align-items:center; gap:8px; background:{{ ex.bg }}; border:{{ ex.border }}; border-radius:8px; padding:8px 10px; cursor:pointer; width:100%;">
+                        <span style="font-size:15px;">{{ ex.icon }}</span>
+                        <span style="font-size:12.5px; font-weight:600; color:{{ ex.color }}; flex:1; text-align:left;">{{ ex.name }}</span>
+                        <span style="font-size:10px; color:#8a8fa3; font-weight:600;">{{ ex.doneOn }}</span>
+                        <span style="font-size:11px; color:{{ g.color }};">{{ ex.check }}</span>
+                      </button>
+                    </sc-for>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:#7e84a0; margin-bottom:4px;">Skill Quests</div>
+    <p style="font-size:12.5px; color:#778; margin:0 0 14px; line-height:1.5;">Steps check off automatically as you complete workouts that include them — tap any step for how to do it.</p>
+    <div style="display:flex; flex-direction:column; gap:12px; margin-bottom: 30px;">
+      <sc-for list="{{ quests }}" as="q" hint-placeholder-count="6">
+        <div style="background:#161925; border:1px solid #2A2D3E; border-radius:12px; padding:13px 14px;">
+          <div style="display:flex; align-items:center; gap:9px; margin-bottom:3px;">
+            <span style="font-size:17px;">{{ q.icon }}</span>
+            <span style="font-size:14px; font-weight:800;">{{ q.name }}</span>
+            <span style="margin-left:auto; font-size:11px; color:{{ q.color }}; font-weight:700;">{{ q.progress }}</span>
+          </div>
+          <div style="font-size:11.5px; color:#778; margin-bottom:11px; line-height:1.4;">{{ q.goal }}</div>
+          <div style="display:flex; align-items:center; overflow-x:auto; padding-bottom:2px;">
+            <sc-for list="{{ q.chain }}" as="step" hint-placeholder-count="5">
+              <div style="display:flex; align-items:center; flex-shrink:0;">
+                <div style="display:flex; align-items:center; gap:6px; background:#0F1117; border:1px solid #2A2D3E; border-radius:18px; padding:6px 11px 6px 8px; white-space:nowrap;">
+                  <span style="font-size:14px;">{{ step.icon }}</span>
+                  <span style="font-size:11.5px; font-weight:600; color:#888;">{{ step.name }}</span>
+                </div>
+                <span style="color:#3f4456; font-size:14px; margin:0 4px; flex-shrink:0;">{{ step.arrow }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="font-size:11px; color:#556; line-height:1.5;">Muscle-balance now lives on the Workout Plan screen (visible only in edit mode) as a coverage guide — it's about plan volume, while this screen shows skill progression.</div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+// WORKOUTS.foundation duplicated from App.jsx purely for this visual preview.
+const WORKOUTS_FOUNDATION = [
+  { exercises: [
+    { name: "Wall Push-Up → Incline Push-Up" }, { name: "Band External Rotation" }, { name: "Dead Hang" },
+    { name: "Bulgarian Split Squat (bodyweight)" }, { name: "Plank Hold" },
+  ]},
+  { exercises: [
+    { name: "Negative Pull-Up" }, { name: "Ring Row (low rings)" }, { name: "Band Face Pull" },
+    { name: "Glute Bridge" }, { name: "Hollow Body Hold" },
+  ]},
+  { exercises: [
+    { name: "Push-Up (standard)" }, { name: "Ring Support Hold" }, { name: "Bulgarian Split Squat (dumbbell)" },
+    { name: "Band External Rotation" }, { name: "Dead Bug" },
+  ]},
+];
+const PLAN_TO_LIBRARY_ID = {
+  "Wall Push-Up → Incline Push-Up": "inclinepushup", "Band External Rotation": "bandexternalrotation",
+  "Dead Hang": "deadhang", "Bulgarian Split Squat (bodyweight)": "bulgarianbw", "Plank Hold": "plank",
+  "Negative Pull-Up": "negpullup", "Ring Row (low rings)": "ringrowupright", "Band Face Pull": "facepull",
+  "Glute Bridge": "glutebridge", "Hollow Body Hold": "hollowbody", "Push-Up (standard)": "pushup",
+  "Ring Support Hold": "ringsupport", "Bulgarian Split Squat (dumbbell)": "bulgarianbw", "Dead Bug": "deadbug",
+};
+
+function axisPoint(i, n, radius, cx, cy, frac) {
+  const angle = (Math.PI * 2 * i) / n - Math.PI / 2;
+  return { x: cx + radius * frac * Math.cos(angle), y: cy + radius * frac * Math.sin(angle) };
+}
+
+class Component extends DCLogic {
+  state = { ready: false, openGroup: null, mastered: new Set(["pushup", "negpullup"]) };
+  doneOn = { pushup: "24 Jun", negpullup: "18 Jun" };
+
+  async componentDidMount() {
+    const lib = await import("./src/data/exerciseLibrary.js");
+    const sk = await import("./src/data/skillQuests.js");
+    const { GROUPS, AXES, AXIS_LABEL, TIERS, BY_ID, exercisesByGroup } = lib;
+    this._lib = { GROUPS, AXES, AXIS_LABEL, TIERS, BY_ID, exercisesByGroup };
+    const { SKILL_QUESTS } = sk;
+
+    const n = AXES.length, cx = 130, cy = 118, R = 84;
+    const ringPts = (frac) => AXES.map((_, i) => { const p = axisPoint(i, n, R, cx, cy, frac); return `${p.x},${p.y}`; }).join(" ");
+
+    const axisValue = (axis) => {
+      let max = 0;
+      WORKOUTS_FOUNDATION.forEach((day) => day.exercises.forEach((ex) => {
+        const e = BY_ID[PLAN_TO_LIBRARY_ID[ex.name]];
+        if (e && e.axes && e.axes[axis]) max = Math.max(max, e.axes[axis] * (e.tier / 5));
+      }));
+      return max;
+    };
+    const radarValues = AXES.map(axisValue);
+    const dataPolygonPoints = AXES.map((_, i) => { const p = axisPoint(i, n, R, cx, cy, Math.max(0.06, radarValues[i])); return `${p.x},${p.y}`; }).join(" ");
+
+    const rings = [0.25, 0.5, 0.75, 1].map((f) => ({ points: ringPts(f) }));
+    const axisLines = AXES.map((_, i) => { const p = axisPoint(i, n, R, cx, cy, 1); return { x1: cx, y1: cy, x2: p.x, y2: p.y }; });
+    const axisLabels = AXES.map((a, i) => {
+      const p = axisPoint(i, n, R, cx, cy, 1.24);
+      const tx = p.x < cx - 6 ? "-100%" : p.x > cx + 6 ? "0%" : "-50%";
+      return { x: p.x, y: p.y, transform: `translate(${tx}, -50%)`, label: AXIS_LABEL[a] };
+    });
+
+    this.buildTracks();
+
+    const balanceCounts = { push: 0, pull: 0, legs: 0, core: 0, shoulders: 0 };
+    WORKOUTS_FOUNDATION.forEach((day) => day.exercises.forEach((ex) => {
+      const e = BY_ID[PLAN_TO_LIBRARY_ID[ex.name]];
+      if (e && balanceCounts[e.group] !== undefined) balanceCounts[e.group] += 1;
+    }));
+    const maxCount = Math.max(1, ...Object.values(balanceCounts));
+    const balance = Object.values(GROUPS).map((g) => ({
+      icon: g.icon, name: g.name, color: g.color,
+      count: balanceCounts[g.id] || 0,
+      widthStyle: Math.max(10, ((balanceCounts[g.id] || 0) / maxCount) * 100) + "%",
+    }));
+
+    const quests = SKILL_QUESTS.map((q) => ({
+      icon: q.icon, name: q.name, goal: q.goal, color: q.color,
+      progress: `0/${q.steps.length}`,
+      chain: q.steps.map((id, i) => {
+        const e = BY_ID[id] || { icon: "❔", name: id };
+        return { icon: e.icon, name: e.name, arrow: i === q.steps.length - 1 ? "" : "→" };
+      }),
+    }));
+
+    this.setState({ ready: true, rings, axisLines, axisLabels, dataPolygonPoints, quests, balance });
+  }
+
+  masteredTierForGroup(group) {
+    const { exercisesByGroup } = this._lib;
+    let max = 0;
+    exercisesByGroup(group).forEach((e) => { if (this.state.mastered.has(e.id) && e.tier > max) max = e.tier; });
+    return max;
+  }
+
+  toggleMastered(id) {
+    this.setState((s) => {
+      const next = new Set(s.mastered);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return { mastered: next };
+    }, () => this.buildTracks());
+  }
+
+  buildTracks() {
+    const { GROUPS, TIERS, exercisesByGroup } = this._lib;
+    const openGroup = this.state.openGroup;
+    const tracks = Object.values(GROUPS).map((g) => {
+      const curTier = this.masteredTierForGroup(g.id);
+      const isOpen = openGroup === g.id;
+      const rungs = [1, 2, 3, 4, 5].map((t) => ({
+        bg: t <= curTier ? g.color : "transparent",
+        border: t > curTier ? "1px solid #2A2D3E" : "none",
+      }));
+      const tiers = [1, 2, 3, 4, 5].map((t) => {
+        const exs = exercisesByGroup(g.id).filter((e) => e.tier === t);
+        if (!exs.length) return null;
+        return {
+          heading: `Tier ${t} · ${TIERS[t]}`,
+          labelColor: t <= curTier ? g.color : "#556",
+          exs: exs.map((e) => {
+            const mastered = this.state.mastered.has(e.id);
+            return {
+              icon: e.icon, name: e.name,
+              bg: mastered ? `${g.color}18` : "#0F1117",
+              border: `1px solid ${mastered ? g.color : "#2A2D3E"}`,
+              color: mastered ? "#E8E8E8" : "#999",
+              check: mastered ? "✓" : "",
+              doneOn: mastered ? (this.doneOn[e.id] || "") : "",
+            };
+          }),
+        };
+      }).filter(Boolean);
+      return {
+        id: g.id, name: g.name, icon: g.icon, color: g.color,
+        tierLabel: `Tier ${curTier || "–"} / 5`,
+        caret: isOpen ? "▴" : "▾",
+        isOpen, tiers,
+        toggleOpen: () => this.setState({ openGroup: isOpen ? null : g.id }, () => this.buildTracks()),
+      };
+    });
+    this.setState({ tracks });
+  }
+
+  renderVals() {
+    return {
+      ready: this.state.ready,
+      rings: this.state.rings || [],
+      axisLines: this.state.axisLines || [],
+      axisLabels: this.state.axisLabels || [],
+      dataPolygonPoints: this.state.dataPolygonPoints || "",
+      tracks: this.state.tracks || [],
+      ready2: this.state.tracks ? true : false,
+      quests: this.state.quests || [],
+      balance: this.state.balance || [],
+    };
+  }
+}
+</script>
+</body>
+</html>

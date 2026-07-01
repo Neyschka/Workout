@@ -12,6 +12,26 @@ function loadSet(key, fallback) {
 function saveSet(key, set) {
   try { localStorage.setItem(key, JSON.stringify([...set])); } catch (e) {}
 }
+function loadMap(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return { ...fallback };
+}
+function saveMap(key, obj) {
+  try { localStorage.setItem(key, JSON.stringify(obj)); } catch (e) {}
+}
+const todayISO = () => new Date().toISOString().slice(0, 10);
+function formatDate(iso) {
+  if (!iso) return null;
+  const d = new Date(iso + "T00:00:00");
+  if (isNaN(d)) return null;
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+// Single brand accent (phases were dropped — the plan is now user-editable).
+const ACCENT = "#4A90A4";
 
 const PHASES = [
   {
@@ -623,33 +643,66 @@ function axisValue(axis, masteredIds) {
   return max;
 }
 
-// Slot counts per muscle group across this phase's Day A–C — the plan's own balance.
-function weeklyGroupCounts(phaseId) {
+const libIdFor = (ex) => ex.libId || PLAN_TO_LIBRARY_ID[ex.name] || null;
+
+// The curated starting plan (phases dropped). Beginner-friendly full-body A/B/C —
+// this doubles as the "recommended" distribution that guides editing.
+const DEFAULT_PLAN = WORKOUTS.foundation.map((d) => ({
+  day: d.day,
+  subtitle: d.subtitle,
+  exercises: d.exercises.map((ex) => ({ ...ex, libId: PLAN_TO_LIBRARY_ID[ex.name] || null })),
+}));
+
+function loadPlan() {
+  try {
+    const raw = localStorage.getItem("cal_plan");
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (Array.isArray(p) && p.length) return p;
+    }
+  } catch (e) {}
+  return JSON.parse(JSON.stringify(DEFAULT_PLAN));
+}
+
+// Slot counts per muscle group across Day A–C for a given plan.
+function weeklyGroupCounts(plan) {
   const counts = { push: 0, pull: 0, legs: 0, core: 0, shoulders: 0, grip: 0 };
-  WORKOUTS[phaseId].forEach((day) => {
+  plan.forEach((day) => {
     day.exercises.forEach((ex) => {
-      const lib = BY_ID[PLAN_TO_LIBRARY_ID[ex.name]];
+      const lib = BY_ID[libIdFor(ex)];
       if (lib && counts[lib.group] !== undefined) counts[lib.group] += 1;
     });
   });
   return counts;
 }
 
-// Exercise ids for everything in a completed day — used to seed/grow "mastered" status.
-function exerciseIdsForDay(phaseId, dayIndex) {
-  const day = WORKOUTS[phaseId] && WORKOUTS[phaseId][dayIndex];
+// The recommended per-group weekly distribution the app guides toward — the
+// curated plan's own balance, so an uninformed user still knows how many of
+// each type to include even while choosing their own exercises.
+const RECOMMENDED_COUNTS = weeklyGroupCounts(DEFAULT_PLAN);
+
+// Exercise ids for everything in a completed day — used to grow "mastered" status.
+function exerciseIdsForDay(plan, dayIndex) {
+  const day = plan && plan[dayIndex];
   if (!day) return [];
-  return day.exercises.map((ex) => PLAN_TO_LIBRARY_ID[ex.name]).filter(Boolean);
+  return day.exercises.map((ex) => libIdFor(ex)).filter(Boolean);
 }
 
 export default function App() {
-  const [activePhase, setActivePhase] = useState("foundation");
   const [activeDay, setActiveDay] = useState(0);
   const [tab, setTab] = useState("plan");
-  const [unlockedSkills, setUnlockedSkills] = useState(() => loadSet("cal_skills", ["deadhang", "wallhandstand"]));
+  // Mastered exercises are now a map of id -> completion date (ISO string, or null
+  // if earned before dates were tracked). Derived Set keeps the old read API.
+  const [masteredDates, setMasteredDates] = useState(() => loadMap("cal_mastered", { deadhang: null, wallhandstand: null }));
+  const unlockedSkills = new Set(Object.keys(masteredDates));
   const [completedDays, setCompletedDays] = useState(() => loadSet("cal_days", []));
   const [selectedExercise, setSelectedExercise] = useState(null);
-  const [phasePickerOpen, setPhasePickerOpen] = useState(false);
+  const [plan, setPlan] = useState(loadPlan);
+  const [editMode, setEditMode] = useState(false);
+  const [picker, setPicker] = useState(null); // { mode:'swap'|'add', dayIndex, slotIndex }
+  const [pickerGroup, setPickerGroup] = useState("push");
+  const [dragIndex, setDragIndex] = useState(null); // slot being drag-reordered (edit mode)
+  const cardRefs = useRef([]); // exercise card DOM nodes for the active day, for hit-testing
   const [ownedEquipment, setOwnedEquipment] = useState(() => loadSet("cal_equipment", ALL_EQUIPMENT_KEYS));
   const [equipmentOpen, setEquipmentOpen] = useState(false);
   const [expandedTrackGroup, setExpandedTrackGroup] = useState(null);
@@ -664,19 +717,36 @@ export default function App() {
   const timerRef = useRef(null);
   const cooldownRef = useRef(null);
 
-  useEffect(() => { saveSet("cal_skills", unlockedSkills); }, [unlockedSkills]);
+  useEffect(() => { saveMap("cal_mastered", masteredDates); }, [masteredDates]);
   useEffect(() => { saveSet("cal_days", completedDays); }, [completedDays]);
   useEffect(() => { saveSet("cal_equipment", ownedEquipment); }, [ownedEquipment]);
+  useEffect(() => { try { localStorage.setItem("cal_plan", JSON.stringify(plan)); } catch (e) {} }, [plan]);
 
   // One-time migration: the Skill Tree used different exercise ids before the
-  // unified library rebuild. Remap anything already unlocked on this device.
+  // unified library rebuild. Remap anything already mastered on this device.
   useEffect(() => {
-    setUnlockedSkills((prev) => {
+    setMasteredDates((prev) => {
       let changed = false;
-      const next = new Set();
-      prev.forEach((id) => {
+      const next = {};
+      Object.entries(prev).forEach(([id, date]) => {
         const mapped = OLD_TO_NEW_SKILL_ID[id] || id;
         if (mapped !== id) changed = true;
+        if (!(mapped in next)) next[mapped] = date;
+      });
+      return changed ? next : prev;
+    });
+  }, []);
+
+  // One-time migration: phases were dropped, so collapse any old phase-scoped
+  // completed-day keys (e.g. "foundation-0") to a plain day index ("day-0").
+  useEffect(() => {
+    setCompletedDays((prev) => {
+      let changed = false;
+      const next = new Set();
+      prev.forEach((key) => {
+        const idx = key.slice(key.lastIndexOf("-") + 1);
+        const mapped = `day-${idx}`;
+        if (mapped !== key) changed = true;
         next.add(mapped);
       });
       return changed ? next : prev;
@@ -684,15 +754,13 @@ export default function App() {
   }, []);
 
   // One-time backfill: a day you'd already marked complete is real evidence you can
-  // do those exercises, even though the mastery system didn't exist yet.
+  // do those exercises, even though dated mastery didn't exist yet (date unknown → null).
   useEffect(() => {
-    setUnlockedSkills((prev) => {
-      const next = new Set(prev);
+    setMasteredDates((prev) => {
+      const next = { ...prev };
       completedDays.forEach((key) => {
-        const sep = key.lastIndexOf("-");
-        const pid = key.slice(0, sep);
-        const dayIdx = parseInt(key.slice(sep + 1), 10);
-        exerciseIdsForDay(pid, dayIdx).forEach((id) => next.add(id));
+        const dayIdx = parseInt(key.slice(key.lastIndexOf("-") + 1), 10);
+        exerciseIdsForDay(plan, dayIdx).forEach((id) => { if (!(id in next)) next[id] = null; });
       });
       return next;
     });
@@ -776,26 +844,93 @@ export default function App() {
   };
 
   const resetProgress = () => {
-    if (window.confirm("Reset all completed sessions and unlocked skills? This cannot be undone.")) {
+    if (window.confirm("Reset all completed sessions and mastered exercises? This cannot be undone.")) {
       setCompletedDays(new Set());
-      setUnlockedSkills(new Set(["deadhang", "wallhandstand"]));
+      setMasteredDates({ deadhang: null, wallhandstand: null });
     }
   };
 
-  const phase = PHASES.find((p) => p.id === activePhase);
-  const workouts = WORKOUTS[activePhase];
-  const workout = workouts[activeDay];
+  const phase = { color: ACCENT };
+  const workouts = plan;
+  const workout = workouts[activeDay] || workouts[0];
 
-  const toggleSkill = (id) => {
-    setUnlockedSkills((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+  // Open the shared exercise-info modal for a library exercise (used by the Skill Tree).
+  const openLibInfo = (e) => setSelectedExercise({
+    name: e.name, icon: e.icon, sets: e.defaultSets, reps: e.defaultReps,
+    note: null, masteredOn: masteredDates[e.id],
+  });
+
+  // --- Plan editing ---
+  const slotFromLib = (e) => ({
+    name: e.name, sets: e.defaultSets, reps: e.defaultReps, note: "", icon: e.icon, libId: e.id,
+  });
+  const openSwap = (dayIndex, slotIndex) => {
+    const cur = plan[dayIndex].exercises[slotIndex];
+    const lib = BY_ID[libIdFor(cur)];
+    setPickerGroup(lib ? lib.group : "push");
+    setPicker({ mode: "swap", dayIndex, slotIndex });
+  };
+  const openAdd = (dayIndex) => {
+    const counts = weeklyGroupCounts(plan);
+    const under = AXES.find((g) => (counts[g] || 0) < (RECOMMENDED_COUNTS[g] || 0));
+    setPickerGroup(under || "push");
+    setPicker({ mode: "add", dayIndex });
+  };
+  const chooseExercise = (e) => {
+    setPlan((prev) => {
+      const next = prev.map((d) => ({ ...d, exercises: [...d.exercises] }));
+      if (picker.mode === "swap") next[picker.dayIndex].exercises[picker.slotIndex] = slotFromLib(e);
+      else next[picker.dayIndex].exercises.push(slotFromLib(e));
+      return next;
+    });
+    setPicker(null);
+  };
+  const removeExercise = (dayIndex, slotIndex) => {
+    setPlan((prev) => {
+      const next = prev.map((d) => ({ ...d, exercises: [...d.exercises] }));
+      next[dayIndex].exercises.splice(slotIndex, 1);
       return next;
     });
   };
+  const moveExercise = (dayIndex, from, to) => {
+    setPlan((prev) => {
+      const next = prev.map((d) => ({ ...d, exercises: [...d.exercises] }));
+      const arr = next[dayIndex].exercises;
+      const [item] = arr.splice(from, 1);
+      arr.splice(to, 0, item);
+      return next;
+    });
+  };
+  // Drag-to-reorder (pointer events → works on touch + mouse). Cards use index keys,
+  // so DOM slots are stable while data reorders under them — pointer capture stays put.
+  const onDragStart = (e, i) => {
+    e.stopPropagation();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
+    setDragIndex(i);
+  };
+  const onDragMove = (e) => {
+    if (dragIndex === null) return;
+    const y = e.clientY;
+    let target = dragIndex;
+    for (let j = 0; j < workout.exercises.length; j++) {
+      const el = cardRefs.current[j];
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      const mid = r.top + r.height / 2;
+      if (dragIndex < j && y > mid) target = j;
+      else if (dragIndex > j && y < mid) { target = j; break; }
+    }
+    if (target !== dragIndex) {
+      moveExercise(activeDay, dragIndex, target);
+      setDragIndex(target);
+    }
+  };
+  const onDragEnd = (e) => {
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (err) {}
+    setDragIndex(null);
+  };
 
-  const dayKey = `${activePhase}-${activeDay}`;
+  const dayKey = `day-${activeDay}`;
   const toggleDay = () => {
     setCompletedDays((prev) => {
       const next = new Set(prev);
@@ -803,10 +938,11 @@ export default function App() {
         next.delete(dayKey);
       } else {
         next.add(dayKey);
-        // Completing a day is real evidence — grow "mastered" with its exercises.
-        setUnlockedSkills((sk) => {
-          const grown = new Set(sk);
-          exerciseIdsForDay(activePhase, activeDay).forEach((id) => grown.add(id));
+        // Completing a day is real evidence — auto-check its exercises (dated today)
+        // in the Skill Tree if not already recorded.
+        setMasteredDates((md) => {
+          const grown = { ...md };
+          exerciseIdsForDay(plan, activeDay).forEach((id) => { if (!(id in grown)) grown[id] = todayISO(); });
           return grown;
         });
       }
@@ -829,122 +965,27 @@ export default function App() {
     return req.filter((e) => !ownedEquipment.has(e));
   };
 
-  const weeklyCounts = weeklyGroupCounts(activePhase);
-  const maxWeeklyCount = Math.max(1, ...Object.values(weeklyCounts));
+  const weeklyCounts = weeklyGroupCounts(plan);
 
   return (
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", minHeight: "100vh", background: "#0F1117", color: "#E8E8E8" }}>
-      {/* Header */}
-      <div style={{ background: "linear-gradient(135deg, #1A1D2E 0%, #0F1117 100%)", borderBottom: "1px solid #2A2D3E", padding: "calc(env(safe-area-inset-top, 0px) + 20px) calc(env(safe-area-inset-right, 0px) + 20px) 0 calc(env(safe-area-inset-left, 0px) + 20px)" }}>
-        <div style={{ maxWidth: 640, margin: "0 auto" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-            <h1 style={{ margin: 0, fontSize: 32, fontWeight: 700, letterSpacing: -1, paddingLeft: 4 }}>
-              Lever<span style={{ color: phase.color }}>.</span>
-            </h1>
-            <button
-              onClick={() => setEquipmentOpen(true)}
-              aria-label="Equipment settings"
-              style={{ background: "none", border: "1px solid #2A2D3E", borderRadius: 8, width: 34, height: 34, color: "#8a8fb0", fontSize: 16, cursor: "pointer", flexShrink: 0 }}
-            >⚙️</button>
-          </div>
-
-          {/* Tabs */}
-          <div style={{ display: "flex", gap: 0 }}>
-            {[
-              { id: "plan", label: "Workout Plan" },
-              { id: "skills", label: "Skill Tree" },
-            ].map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  padding: "10px 18px",
-                  fontSize: 14,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  color: tab === t.id ? "#E8E8E8" : "#666",
-                  borderBottom: tab === t.id ? `2px solid ${phase.color}` : "2px solid transparent",
-                  transition: "all 0.2s",
-                  letterSpacing: 0.3,
-                }}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
+      {/* Header — compact app title bar, no desktop-style underline tabs */}
+      <div style={{ background: "#12141c", borderBottom: "1px solid #2A2D3E", padding: "calc(env(safe-area-inset-top, 0px) + 14px) calc(env(safe-area-inset-right, 0px) + 20px) 14px calc(env(safe-area-inset-left, 0px) + 20px)", position: "sticky", top: 0, zIndex: 50 }}>
+        <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <h1 style={{ margin: 0, fontSize: 19, fontWeight: 800, letterSpacing: -0.5 }}>
+            Lever<span style={{ color: phase.color }}>.</span>
+          </h1>
         </div>
       </div>
 
-      <div style={{ maxWidth: 640, margin: "0 auto", padding: "20px", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)" }}>
+      <div style={{ maxWidth: 640, margin: "0 auto", padding: "20px", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 90px)" }}>
         {tab === "plan" && (
           <>
-            {/* Phase context bar — collapses the program block into one quiet "where am I" control */}
-            <div style={{ marginBottom: 16 }}>
-              <button
-                onClick={() => setPhasePickerOpen((o) => !o)}
-                style={{
-                  width: "100%",
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  background: "#1A1D2E",
-                  border: `1px solid ${phasePickerOpen ? phase.color : "#2A2D3E"}`,
-                  borderRadius: 10,
-                  borderBottomLeftRadius: phasePickerOpen ? 0 : 10,
-                  borderBottomRightRadius: phasePickerOpen ? 0 : 10,
-                  padding: "11px 14px", cursor: "pointer", textAlign: "left", transition: "border-color 0.2s",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-                  <div style={{ width: 8, height: 34, borderRadius: 4, background: phase.color }} />
-                  <div>
-                    <div style={{ fontSize: 10, letterSpacing: 1.4, textTransform: "uppercase", color: "#7e84a0", fontWeight: 700 }}>
-                      Phase {PHASES.findIndex((p) => p.id === activePhase) + 1} of {PHASES.length} · {phase.weeks}
-                    </div>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: "#E8E8E8", marginTop: 1 }}>{phase.name}</div>
-                  </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#8a8fb0", fontSize: 12, fontWeight: 600 }}>
-                  Change <span style={{ fontSize: 13, display: "inline-block", transform: phasePickerOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>▾</span>
-                </div>
-              </button>
-
-              {phasePickerOpen && (
-                <div style={{ border: `1px solid ${phase.color}`, borderTop: "none", borderRadius: "0 0 10px 10px", overflow: "hidden" }}>
-                  {PHASES.map((p, pi) => {
-                    const on = p.id === activePhase;
-                    return (
-                      <button
-                        key={p.id}
-                        onClick={() => { setActivePhase(p.id); setActiveDay(0); setPhasePickerOpen(false); }}
-                        style={{
-                          width: "100%", textAlign: "left", cursor: "pointer",
-                          background: on ? `${p.color}18` : "#161925",
-                          border: "none",
-                          borderTop: pi === 0 ? "none" : "1px solid #2A2D3E",
-                          borderLeft: `3px solid ${on ? p.color : "transparent"}`,
-                          padding: "12px 14px",
-                        }}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                          <div style={{ fontSize: 14, fontWeight: 700, color: on ? "#fff" : "#bbb" }}>
-                            <span style={{ color: p.color }}>Phase {pi + 1}</span> · {p.name}
-                          </div>
-                          <span style={{ fontSize: 11, color: "#667", flexShrink: 0 }}>{p.weeks}</span>
-                        </div>
-                        <div style={{ fontSize: 12, color: "#778", lineHeight: 1.45, marginTop: 4 }}>{p.description}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
             {/* Day selector — a single segmented control: the one clear choice on this screen */}
             <div style={{ background: "#12151F", border: "1px solid #2A2D3E", borderRadius: 11, padding: 4, display: "flex", gap: 4, marginBottom: 10 }}>
               {workouts.map((w, i) => {
                 const on = activeDay === i;
-                const done = completedDays.has(`${activePhase}-${i}`);
+                const done = completedDays.has(`day-${i}`);
                 return (
                   <button
                     key={i}
@@ -966,13 +1007,23 @@ export default function App() {
               })}
             </div>
 
-            {/* Active session caption */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, padding: "0 4px" }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#cfcfe0" }}>{workout.subtitle}</span>
-              {completedDays.has(dayKey) && <span style={{ fontSize: 11, color: "#5EC47A" }}>✓ completed</span>}
-            </div>
+            {/* Equipment settings — only while editing the plan */}
+            {editMode && (
+            <button
+              onClick={() => setEquipmentOpen(true)}
+              style={{
+                width: "100%", cursor: "pointer", marginBottom: 16,
+                background: "transparent", border: "1px solid #2A2D3E",
+                borderRadius: 8, padding: "11px", fontSize: 13, fontWeight: 700,
+                color: "#8a8fb0",
+              }}
+            >
+              ⚙️ Your equipment
+            </button>
+            )}
 
             {/* Start Session */}
+            {!editMode && workout.exercises.length > 0 && (
             <button
               onClick={startSession}
               style={{
@@ -994,38 +1045,56 @@ export default function App() {
             >
               ▶ Start Session
             </button>
+            )}
 
             {/* Exercises */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
               {workout.exercises.map((ex, i) => {
-                const lib = BY_ID[PLAN_TO_LIBRARY_ID[ex.name]];
+                const lib = BY_ID[libIdFor(ex)];
                 const missing = missingEquipment(lib);
+                const groupInfo = lib ? GROUPS[lib.group] : null;
+                const dragging = dragIndex === i;
                 return (
-                  <button
+                  <div
                     key={i}
-                    onClick={() => setSelectedExercise(ex)}
+                    ref={(el) => { cardRefs.current[i] = el; }}
+                    onClick={editMode ? undefined : () => setSelectedExercise(ex)}
                     style={{
-                      background: "#1A1D2E",
-                      border: "1px solid #2A2D3E",
+                      background: dragging ? "#22263a" : "#1A1D2E",
+                      border: `1px solid ${dragging ? phase.color : "#2A2D3E"}`,
                       borderRadius: 10,
                       padding: "14px 16px",
                       display: "flex",
                       gap: 12,
                       alignItems: "flex-start",
                       textAlign: "left",
-                      cursor: "pointer",
+                      cursor: editMode ? "default" : "pointer",
                       width: "100%",
-                      transition: "border-color 0.15s",
-                      opacity: missing.length ? 0.5 : 1,
+                      transition: dragging ? "none" : "border-color 0.15s, background 0.15s",
+                      opacity: dragging ? 0.9 : (missing.length ? 0.5 : 1),
+                      boxShadow: dragging ? "0 6px 20px rgba(0,0,0,0.4)" : "none",
                     }}
-                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = phase.color)}
-                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#2A2D3E")}
                   >
+                    {editMode && (
+                      <div
+                        onPointerDown={(e) => onDragStart(e, i)}
+                        onPointerMove={onDragMove}
+                        onPointerUp={onDragEnd}
+                        onPointerCancel={onDragEnd}
+                        style={{
+                          flexShrink: 0, marginTop: 1, cursor: "grab", touchAction: "none",
+                          color: "#5a6078", fontSize: 18, lineHeight: 1, padding: "2px 2px 2px 0",
+                          alignSelf: "stretch", display: "flex", alignItems: "center",
+                        }}
+                        aria-label="Drag to reorder"
+                      >⠿</div>
+                    )}
                     <div style={{ fontSize: 22, flexShrink: 0, marginTop: 1 }}>{ex.icon}</div>
-                    <div style={{ flex: 1 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                         <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4, color: phase.color }}>{ex.name}</div>
-                        <span style={{ fontSize: 11, color: phase.color, flexShrink: 0, fontWeight: 600 }}>Details ›</span>
+                        {!editMode && <span style={{ fontSize: 11, color: phase.color, flexShrink: 0, fontWeight: 600 }}>Details ›</span>}
+                        {editMode && groupInfo && <span style={{ fontSize: 10, fontWeight: 700, color: groupInfo.color, flexShrink: 0, letterSpacing: 0.5, textTransform: "uppercase" }}>{groupInfo.name}</span>}
                       </div>
                       <div style={{ display: "flex", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
                         <span style={{ background: `${phase.color}22`, color: phase.color, fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 4 }}>
@@ -1040,38 +1109,74 @@ export default function App() {
                           </span>
                         )}
                       </div>
-                      <div style={{ fontSize: 12, color: "#778", lineHeight: 1.5 }}>{ex.note}</div>
+                      {editMode ? (
+                        <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                          <button onClick={() => openSwap(activeDay, i)} style={{ cursor: "pointer", background: "#252840", border: "none", borderRadius: 7, padding: "7px 12px", fontSize: 12, fontWeight: 700, color: "#cfcfe0" }}>⇄ Swap</button>
+                          <button onClick={() => removeExercise(activeDay, i)} style={{ cursor: "pointer", background: "transparent", border: "1px solid #4a2a2a", borderRadius: 7, padding: "7px 12px", fontSize: 12, fontWeight: 700, color: "#C45E5E" }}>✕ Remove</button>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 12, color: "#778", lineHeight: 1.5 }}>{ex.note}</div>
+                      )}
                     </div>
-                  </button>
+                  </div>
                 );
               })}
+              {editMode && (
+                <button
+                  onClick={() => openAdd(activeDay)}
+                  style={{ cursor: "pointer", background: "transparent", border: `1px dashed ${phase.color}66`, borderRadius: 10, padding: "13px", fontSize: 13, fontWeight: 700, color: phase.color, width: "100%" }}
+                >
+                  + Add exercise
+                </button>
+              )}
             </div>
 
-            {/* Weekly muscle balance */}
+            {/* Muscle coverage guidance — only while editing, so an uninformed user
+                still knows how many of each type to include as they choose exercises. */}
+            {editMode && (
             <div style={{ background: "#1A1D2E", border: "1px solid #2A2D3E", borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: "#7e84a0", marginBottom: 10 }}>
-                This week's muscle balance
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: "#7e84a0", marginBottom: 4 }}>
+                Weekly muscle coverage
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: 11.5, color: "#8a8fa3", marginBottom: 12, lineHeight: 1.45 }}>
+                Yours vs the recommended balance across Day A–C. Aim to hit each target so no muscle group gets neglected.
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
                 {Object.values(GROUPS).map((g) => {
                   const count = weeklyCounts[g.id] || 0;
-                  const widthPct = Math.max(10, (count / maxWeeklyCount) * 100);
+                  const target = RECOMMENDED_COUNTS[g.id] || 0;
+                  const met = count >= target;
+                  const widthPct = target > 0 ? Math.min(100, (count / target) * 100) : (count > 0 ? 100 : 0);
                   return (
                     <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <span style={{ fontSize: 14, width: 20, textAlign: "center" }}>{g.icon}</span>
                       <span style={{ fontSize: 12, color: "#AAB", fontWeight: 600, width: 72, flexShrink: 0 }}>{g.name}</span>
                       <div style={{ flex: 1, height: 7, background: "#0F1117", borderRadius: 4, overflow: "hidden" }}>
-                        <div style={{ width: `${widthPct}%`, height: "100%", background: g.color, borderRadius: 4 }} />
+                        <div style={{ width: `${widthPct}%`, height: "100%", background: met ? "#5EC47A" : g.color, borderRadius: 4, transition: "width 0.2s" }} />
                       </div>
-                      <span style={{ fontSize: 12, color: "#667", fontWeight: 700, width: 18, textAlign: "right" }}>{count}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, width: 62, textAlign: "right", color: met ? "#5EC47A" : "#E0A23A", flexShrink: 0 }}>
+                        {met ? `${count}/${target} ✓` : `add ${target - count}`}
+                      </span>
                     </div>
                   );
                 })}
               </div>
-              <div style={{ fontSize: 11, color: "#556", marginTop: 10, lineHeight: 1.4 }}>
-                Slot counts across Day A–C this phase — the plan's own balance, per muscle group.
-              </div>
             </div>
+            )}
+
+            {/* Edit plan toggle */}
+            <button
+              onClick={() => setEditMode((e) => !e)}
+              style={{
+                width: "100%", cursor: "pointer",
+                background: editMode ? phase.color : "transparent",
+                border: `1px solid ${editMode ? phase.color : "#2A2D3E"}`,
+                borderRadius: 8, padding: "11px", fontSize: 13, fontWeight: 700,
+                color: editMode ? "#fff" : "#8a8fb0",
+              }}
+            >
+              {editMode ? "✓ Done editing" : "✎ Edit plan"}
+            </button>
 
             {/* Rest Note */}
             <div style={{ marginTop: 16, padding: "12px 14px", background: "#1A1D2E", borderRadius: 8, fontSize: 12, color: "#667", lineHeight: 1.6 }}>
@@ -1091,7 +1196,7 @@ export default function App() {
           return (
             <>
               <p style={{ fontSize: 13, color: "#778", marginBottom: 18, lineHeight: 1.6 }}>
-                Your current level across every muscle group — based on what you've actually marked yourself able to do, not just what's scheduled — and the calisthenics skills you're building toward. Tap a track to see every exercise at each tier.
+                Your current level across every muscle group — exercises check off automatically, with the date, once you complete a workout that includes them. Tap a track to see every exercise at each tier; tap any exercise for how to do it.
               </p>
 
               {/* Radar */}
@@ -1157,11 +1262,12 @@ export default function App() {
                                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                                   {exs.map((e) => {
                                     const mastered = unlockedSkills.has(e.id);
+                                    const doneOn = formatDate(masteredDates[e.id]);
                                     const missing = missingEquipment(e);
                                     return (
                                       <button
                                         key={e.id}
-                                        onClick={() => toggleSkill(e.id)}
+                                        onClick={() => openLibInfo(e)}
                                         style={{
                                           display: "flex", alignItems: "center", gap: 10,
                                           background: mastered ? `${g.color}18` : "#0F1117",
@@ -1173,7 +1279,7 @@ export default function App() {
                                         <span style={{ fontSize: 15 }}>{e.icon}</span>
                                         <span style={{ fontSize: 12.5, fontWeight: 600, color: mastered ? "#E8E8E8" : "#999", flex: 1, textAlign: "left" }}>{e.name}</span>
                                         {missing.length > 0 && <span style={{ fontSize: 9.5, color: "#A0683A", flexShrink: 0 }}>need {missing.map((m) => EQUIPMENT[m]).join(", ")}</span>}
-                                        {mastered && <span style={{ fontSize: 11, color: g.color, flexShrink: 0 }}>✓</span>}
+                                        {mastered && <span style={{ fontSize: 11, color: g.color, flexShrink: 0, fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}>{doneOn && <span style={{ fontSize: 10, color: "#8a8fa3", fontWeight: 600 }}>{doneOn}</span>}✓</span>}
                                       </button>
                                     );
                                   })}
@@ -1190,7 +1296,7 @@ export default function App() {
 
               {/* Skill quests */}
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#7e84a0", marginBottom: 4 }}>Skill Quests</div>
-              <p style={{ fontSize: 12.5, color: "#778", margin: "0 0 14px", lineHeight: 1.5 }}>Tap a step once you can do it. These cut across muscle groups — the fun, linear goals.</p>
+              <p style={{ fontSize: 12.5, color: "#778", margin: "0 0 14px", lineHeight: 1.5 }}>Steps check off automatically as you complete workouts that include them. Tap any step for how to do it. These cut across muscle groups — the fun, linear goals.</p>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 {SKILL_QUESTS.map((q) => {
                   const doneCount = q.steps.filter((id) => unlockedSkills.has(id)).length;
@@ -1202,7 +1308,7 @@ export default function App() {
                         <span style={{ marginLeft: "auto", fontSize: 11, color: q.color, fontWeight: 700 }}>{doneCount}/{q.steps.length}</span>
                       </div>
                       <div style={{ fontSize: 11.5, color: "#778", marginBottom: 11, lineHeight: 1.4 }}>{q.goal}</div>
-                      <div style={{ display: "flex", alignItems: "center", overflowX: "auto", paddingBottom: 2 }}>
+                      <div className="subtle-scroll" style={{ display: "flex", alignItems: "center", overflowX: "auto", paddingBottom: 2 }}>
                         {q.steps.map((id, i) => {
                           const e = BY_ID[id];
                           if (!e) return null;
@@ -1210,7 +1316,7 @@ export default function App() {
                           return (
                             <div key={id} style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
                               <button
-                                onClick={() => toggleSkill(id)}
+                                onClick={() => openLibInfo(e)}
                                 style={{
                                   display: "flex", alignItems: "center", gap: 6,
                                   background: unlocked ? `${q.color}22` : "#0F1117",
@@ -1235,6 +1341,36 @@ export default function App() {
             </>
           );
         })()}
+      </div>
+
+      {/* Bottom tab bar — fixed, native-app style */}
+      <div style={{
+        position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 90,
+        background: "#12141ce6", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+        borderTop: "1px solid #2A2D3E",
+        paddingBottom: "env(safe-area-inset-bottom, 0px)",
+      }}>
+        <div style={{ maxWidth: 640, margin: "0 auto", display: "flex" }}>
+          {[
+            { id: "plan", label: "Workout", icon: "🏋️" },
+            { id: "skills", label: "Skill Tree", icon: "🌳" },
+          ].map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              style={{
+                flex: 1, background: "none", border: "none", cursor: "pointer",
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+                padding: "9px 0 8px",
+                color: tab === t.id ? phase.color : "#666",
+                transition: "color 0.15s",
+              }}
+            >
+              <span style={{ fontSize: 20, lineHeight: 1 }}>{t.icon}</span>
+              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.2 }}>{t.label}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Equipment Modal */}
@@ -1296,6 +1432,75 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Exercise Picker Modal (swap / add) */}
+      {picker && (() => {
+        const exs = exercisesByGroup(pickerGroup).slice().sort((a, b) => a.tier - b.tier);
+        const g = GROUPS[pickerGroup];
+        return (
+          <div
+            onClick={() => setPicker(null)}
+            style={{ position: "fixed", inset: 0, zIndex: 160, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 0 }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ background: "#161925", border: "1px solid #2A2D3E", borderRadius: "16px 16px 0 0", width: "100%", maxWidth: 640, maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 -12px 48px rgba(0,0,0,0.6)" }}
+            >
+              <div style={{ flexShrink: 0, padding: "18px 20px 12px", borderBottom: "1px solid #2A2D3E" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                  <span style={{ fontSize: 16, fontWeight: 800 }}>{picker.mode === "swap" ? "Swap exercise" : "Add exercise"}</span>
+                  <button onClick={() => setPicker(null)} style={{ background: "#252840", border: "none", borderRadius: 8, width: 30, height: 30, color: "#AAB", fontSize: 17, cursor: "pointer" }}>×</button>
+                </div>
+                <div className="subtle-scroll" style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }}>
+                  {Object.values(GROUPS).map((gr) => {
+                    const on = gr.id === pickerGroup;
+                    return (
+                      <button
+                        key={gr.id}
+                        onClick={() => setPickerGroup(gr.id)}
+                        style={{ flexShrink: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, background: on ? `${gr.color}22` : "#0F1117", border: `1px solid ${on ? gr.color : "#2A2D3E"}`, borderRadius: 20, padding: "6px 12px", fontSize: 12.5, fontWeight: 700, color: on ? gr.color : "#888" }}
+                      >
+                        <span style={{ fontSize: 14 }}>{gr.icon}</span>{gr.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div style={{ padding: "14px 20px 24px", overflowY: "auto", flex: 1 }}>
+                <div style={{ fontSize: 12, color: "#8a8fa3", lineHeight: 1.45, marginBottom: 14 }}>{g.blurb}</div>
+                {[1, 2, 3, 4, 5].map((t) => {
+                  const tierExs = exs.filter((e) => e.tier === t);
+                  if (!tierExs.length) return null;
+                  return (
+                    <div key={t} style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: g.color, marginBottom: 6 }}>Tier {t} · {TIERS[t]}</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {tierExs.map((e) => {
+                          const missing = missingEquipment(e);
+                          return (
+                            <button
+                              key={e.id}
+                              onClick={() => chooseExercise(e)}
+                              style={{ display: "flex", alignItems: "center", gap: 10, background: "#0F1117", border: "1px solid #2A2D3E", borderRadius: 8, padding: "10px 12px", cursor: "pointer", width: "100%", textAlign: "left", opacity: missing.length ? 0.6 : 1 }}
+                            >
+                              <span style={{ fontSize: 16 }}>{e.icon}</span>
+                              <span style={{ flex: 1, minWidth: 0 }}>
+                                <span style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#E8E8E8" }}>{e.name}</span>
+                                <span style={{ display: "block", fontSize: 11, color: "#667", marginTop: 1 }}>{e.defaultSets}×{e.defaultReps}{missing.length ? ` · need ${missing.map((m) => EQUIPMENT[m]).join(", ")}` : ""}</span>
+                              </span>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: g.color, flexShrink: 0 }}>{picker.mode === "swap" ? "Swap in" : "Add"} ›</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Session Modal */}
       {sessionActive && (() => {
@@ -1648,10 +1853,22 @@ export default function App() {
                 </a>
 
                 {/* Coach's note */}
+                {ex.note && (
                 <div style={{ background: "#1A1D2E", borderLeft: `3px solid ${phase.color}`, borderRadius: 8, padding: "12px 14px", marginBottom: 20 }}>
                   <div style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: phase.color, fontWeight: 700, marginBottom: 4 }}>Coach's note</div>
                   <div style={{ fontSize: 13, color: "#AAB", lineHeight: 1.5 }}>{ex.note}</div>
                 </div>
+                )}
+
+                {/* Mastery status (Skill Tree exercises) */}
+                {ex.masteredOn !== undefined && (
+                <div style={{ background: "#1A3A2818", border: "1px solid #5EC47A", borderRadius: 8, padding: "10px 14px", marginBottom: 20, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 14, color: "#5EC47A" }}>✓</span>
+                  <span style={{ fontSize: 13, color: "#AAB" }}>
+                    Checked off{formatDate(ex.masteredOn) ? ` on ${formatDate(ex.masteredOn)}` : ""} — from a completed workout.
+                  </span>
+                </div>
+                )}
 
                 {d ? (
                   <>
