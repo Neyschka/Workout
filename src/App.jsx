@@ -635,8 +635,12 @@ const EXERCISE_DETAILS = [
   },
 ];
 
-function getDetails(name) {
-  // Pick the most specific (longest) matching key, so e.g. "Handstand Push-Up"
+function getDetails(name, lib) {
+  // Every library exercise (src/data/exerciseLibrary.js) carries its own authored
+  // details — prefer that exact match over the name-guessing fallback below.
+  if (lib?.details) return lib.details;
+  // Fallback for the handful of exercises with no library id (or a stale one):
+  // pick the most specific (longest) matching key, so e.g. "Handstand Push-Up"
   // doesn't get matched to the generic "Push-Up" entry.
   return EXERCISE_DETAILS
     .filter((d) => name.includes(d.match))
@@ -925,7 +929,7 @@ export default function App() {
   // Open the shared exercise-info modal for a library exercise (used by the Skill Tree).
   const openLibInfo = (e) => setSelectedExercise({
     name: e.name, icon: e.icon, sets: e.defaultSets, reps: e.defaultReps,
-    note: null, masteredOn: masteredDates[e.id],
+    note: null, masteredOn: masteredDates[e.id], libId: e.id,
   });
 
   // --- Plan editing ---
@@ -1717,7 +1721,7 @@ export default function App() {
                 </button>
               </div>
             ) : (() => {
-              const d = getDetails(ex.name);
+              const d = getDetails(ex.name, BY_ID[libIdFor(ex)]);
               return (
                 <div style={{ flex: 1, overflowY: "auto", padding: "20px", display: "flex", flexDirection: "column", gap: 16 }}>
                   {/* Timer / Cooldown */}
@@ -1911,7 +1915,7 @@ export default function App() {
       {/* Exercise Detail Modal */}
       {selectedExercise && (() => {
         const ex = selectedExercise;
-        const d = getDetails(ex.name);
+        const d = getDetails(ex.name, BY_ID[libIdFor(ex)]);
         return (
           <div
             onClick={() => setSelectedExercise(null)}
@@ -2041,7 +2045,7 @@ export default function App() {
                     </div>
 
                     {/* Common mistakes */}
-                    <div style={{ marginBottom: d.shoulder ? 20 : 0 }}>
+                    <div style={{ marginBottom: (d.shoulder || d.tip) ? 20 : 0 }}>
                       <div style={{ fontSize: 12, letterSpacing: 1.5, textTransform: "uppercase", color: "#E0884A", fontWeight: 700, marginBottom: 10 }}>✕ Avoid</div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                         {d.mistakes.map((m, i) => (
@@ -2054,11 +2058,21 @@ export default function App() {
 
                     {/* Shoulder note */}
                     {d.shoulder && (
-                      <div style={{ background: "#1E2A3A", border: "1px solid #2E5A7A", borderRadius: 10, padding: "13px 15px" }}>
+                      <div style={{ background: "#1E2A3A", border: "1px solid #2E5A7A", borderRadius: 10, padding: "13px 15px", marginBottom: d.tip ? 12 : 0 }}>
                         <div style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: "#6BB6E0", fontWeight: 700, marginBottom: 5, display: "flex", alignItems: "center", gap: 6 }}>
                           🩹 Shoulder note
                         </div>
                         <div style={{ fontSize: 13, color: "#AECDE0", lineHeight: 1.5 }}>{d.shoulder}</div>
+                      </div>
+                    )}
+
+                    {/* General tip */}
+                    {d.tip && (
+                      <div style={{ background: "#1E2A1E", border: "1px solid #2E5A3A", borderRadius: 10, padding: "13px 15px" }}>
+                        <div style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: "#6BE08A", fontWeight: 700, marginBottom: 5, display: "flex", alignItems: "center", gap: 6 }}>
+                          💡 Tip
+                        </div>
+                        <div style={{ fontSize: 13, color: "#AEE0BC", lineHeight: 1.5 }}>{d.tip}</div>
                       </div>
                     )}
                   </>
