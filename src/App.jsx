@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { GROUPS, AXES, AXIS_LABEL, EQUIPMENT, BY_ID, exercisesByGroup, TIERS } from "./data/exerciseLibrary";
+import { GROUPS, AXES, AXIS_LABEL, EQUIPMENT, BY_ID, EXERCISES, exercisesByGroup, TIERS } from "./data/exerciseLibrary";
 import { SKILL_QUESTS } from "./data/skillQuests";
 
 function loadSet(key, fallback) {
@@ -30,24 +30,20 @@ function formatDate(iso) {
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
-const MS_DAY = 86400000;
-// GitHub-style contribution grid: an array of week-columns (oldest first), each
-// a 7-day Sun→Sat column. Days after today are null placeholders (unrendered),
-// so the grid always ends on the current, in-progress week.
-function buildCalendarWeeks(weeksBack = 26) {
-  const now = new Date();
-  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const endOfWeek = new Date(today);
-  endOfWeek.setUTCDate(endOfWeek.getUTCDate() + (6 - endOfWeek.getUTCDay()));
-  const start = new Date(endOfWeek);
-  start.setUTCDate(start.getUTCDate() - (weeksBack * 7 - 1));
-  const days = [];
-  for (let t = start.getTime(); t <= endOfWeek.getTime(); t += MS_DAY) {
-    const d = new Date(t);
-    days.push(d.getTime() > today.getTime() ? null : d.toISOString().slice(0, 10));
-  }
+const isoDate = (year, monthIndex, day) => `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+// Month-view grid for the History tab: weeks (Sun→Sat rows) covering one
+// calendar month, padded with null cells so every week is 7 long. Only pads
+// to the last row actually needed (5 or 6), not a fixed 6 every time.
+function buildMonthGrid(year, monthIndex) {
+  const numDays = new Date(year, monthIndex + 1, 0).getDate();
+  const startDow = new Date(year, monthIndex, 1).getDay();
+  const cells = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let day = 1; day <= numDays; day++) cells.push(isoDate(year, monthIndex, day));
+  while (cells.length % 7 !== 0) cells.push(null);
   const weeks = [];
-  for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
   return weeks;
 }
 
@@ -739,7 +735,7 @@ export default function App() {
   const [tab, setTab] = useState("plan");
   // Mastered exercises are now a map of id -> completion date (ISO string, or null
   // if earned before dates were tracked). Derived Set keeps the old read API.
-  const [masteredDates, setMasteredDates] = useState(() => loadMap("cal_mastered", { deadhang: null, wallhandstand: null }));
+  const [masteredDates, setMasteredDates] = useState(() => loadMap("cal_mastered", {}));
   const unlockedSkills = new Set(Object.keys(masteredDates));
   const [completedDays, setCompletedDays] = useState(() => loadSet("cal_days", []));
   // Calendar dates (ISO, deduped) a session was completed on — powers the History tab.
@@ -764,18 +760,16 @@ export default function App() {
   const [exerciseTimes, setExerciseTimes] = useState([]);
   const timerRef = useRef(null);
   const cooldownRef = useRef(null);
-  const historyScrollRef = useRef(null);
   const factoryResetTimerRef = useRef(null);
+  // Which month the History calendar is showing — starts on the current month.
+  const [historyMonth, setHistoryMonth] = useState(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() };
+  });
 
   useEffect(() => { saveMap("cal_mastered", masteredDates); }, [masteredDates]);
   useEffect(() => { saveSet("cal_days", completedDays); }, [completedDays]);
   useEffect(() => { saveSet("cal_session_dates", sessionDates); }, [sessionDates]);
-  // Scroll the History calendar to the current week whenever it's opened.
-  useEffect(() => {
-    if (tab === "history" && historyScrollRef.current) {
-      historyScrollRef.current.scrollLeft = historyScrollRef.current.scrollWidth;
-    }
-  }, [tab]);
   useEffect(() => { saveSet("cal_equipment", ownedEquipment); }, [ownedEquipment]);
   useEffect(() => { try { localStorage.setItem("cal_plan", JSON.stringify(plan)); } catch (e) {} }, [plan]);
 
@@ -905,7 +899,7 @@ export default function App() {
     if (window.confirm("Reset all completed sessions and mastered exercises? This cannot be undone.")) {
       setCompletedDays(new Set());
       setSessionDates(new Set());
-      setMasteredDates({ deadhang: null, wallhandstand: null });
+      setMasteredDates({});
     }
   };
 
@@ -921,6 +915,17 @@ export default function App() {
     }, 5000);
   };
   const cancelFactoryResetHold = () => clearTimeout(factoryResetTimerRef.current);
+
+  // History month navigation — blocked from going past the current real-world month.
+  const now = new Date();
+  const isCurrentHistoryMonth = historyMonth.year === now.getFullYear() && historyMonth.month === now.getMonth();
+  const goHistoryPrevMonth = () => {
+    setHistoryMonth(({ year, month }) => (month === 0 ? { year: year - 1, month: 11 } : { year, month: month - 1 }));
+  };
+  const goHistoryNextMonth = () => {
+    if (isCurrentHistoryMonth) return;
+    setHistoryMonth(({ year, month }) => (month === 11 ? { year: year + 1, month: 0 } : { year, month: month + 1 }));
+  };
 
   const phase = { color: ACCENT };
   const workouts = plan;
@@ -1218,7 +1223,7 @@ export default function App() {
               {editMode && (
                 <button
                   onClick={() => openAdd(activeDay)}
-                  style={{ cursor: "pointer", background: "transparent", border: `1px dashed ${phase.color}66`, borderRadius: 10, padding: "13px", fontSize: 13, fontWeight: 700, color: phase.color, width: "100%" }}
+                  style={{ cursor: "pointer", background: "transparent", border: `2px dashed ${phase.color}66`, borderRadius: 12, padding: "20px", fontSize: 16, fontWeight: 700, color: phase.color, width: "100%" }}
                 >
                   + Add exercise
                 </button>
@@ -1227,8 +1232,9 @@ export default function App() {
             )}
 
             {/* Muscle coverage guidance — only while editing, so an uninformed user
-                still knows how many of each type to include as they choose exercises. */}
-            {editMode && (
+                still knows how many of each type to include as they choose exercises.
+                Hidden while the plan is still entirely empty — nothing to balance yet. */}
+            {editMode && !planIsEmpty(plan) && (
             <div style={{ background: "#1A1D2E", border: "1px solid #2A2D3E", borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: "#7e84a0", marginBottom: 4 }}>
                 Weekly muscle coverage
@@ -1259,7 +1265,9 @@ export default function App() {
             </div>
             )}
 
-            {/* Edit plan toggle */}
+            {/* Edit plan toggle — hidden on the empty, brand-new-plan screen, which
+                already has its own "Build my plan" button to reach edit mode. */}
+            {(editMode || workout.exercises.length > 0) && (
             <button
               onClick={() => setEditMode((e) => !e)}
               style={{
@@ -1272,11 +1280,21 @@ export default function App() {
             >
               {editMode ? "✓ Done editing" : "✎ Edit plan"}
             </button>
+            )}
 
-            {/* Rest Note */}
-            <div style={{ marginTop: 16, padding: "12px 14px", background: "#1A1D2E", borderRadius: 8, fontSize: 12, color: "#667", lineHeight: 1.6 }}>
-              <strong style={{ color: "#888" }}>Rest:</strong> Take at least one day off between sessions. A–B–rest–C or Mon/Wed/Fri works well. Prioritise sleep and protein (aim for ~1.6–2g per kg of bodyweight).
+            {/* Rest Note — hidden while editing, and on the empty new-plan screen */}
+            {!editMode && workout.exercises.length > 0 && (
+            <div style={{
+              marginTop: 16, padding: "14px 16px", background: `${phase.color}1A`,
+              border: `1px solid ${phase.color}55`, borderLeft: `4px solid ${phase.color}`,
+              borderRadius: 8, fontSize: 13, color: "#C7D3DA", lineHeight: 1.6,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, fontWeight: 800, color: phase.color, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>
+                😴 Rest
+              </div>
+              Take at least one day off between sessions. A–B–rest–C or Mon/Wed/Fri works well. Prioritise sleep and protein (aim for ~1.6–2g per kg of bodyweight).
             </div>
+            )}
 
           </>
         )}
@@ -1438,32 +1456,67 @@ export default function App() {
         })()}
 
         {tab === "history" && (() => {
-          const weeks = buildCalendarWeeks(26);
-          const weekdayLabels = ["S", "M", "T", "W", "T", "F", "S"];
-          const cell = 11, gap = 3;
+          const weeks = buildMonthGrid(historyMonth.year, historyMonth.month);
+          const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+          const monthLabel = new Date(historyMonth.year, historyMonth.month, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+          const todayIso = isoDate(now.getFullYear(), now.getMonth(), now.getDate());
           return (
-            <div style={{ display: "flex", gap: 8 }}>
-              <div style={{ display: "flex", flexDirection: "column", gap }}>
-                {weekdayLabels.map((l, i) => (
-                  <div key={i} style={{ width: cell, height: cell, fontSize: 9, color: "#556", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    {i % 2 === 1 ? l : ""}
-                  </div>
+            <div>
+              <p style={{ fontSize: 13, color: "#778", marginBottom: 18, lineHeight: 1.6 }}>
+                Every day you complete a workout session turns green here.
+              </p>
+
+              {/* Month header + navigation */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+                <button
+                  onClick={goHistoryPrevMonth}
+                  style={{ cursor: "pointer", background: "#161925", border: "1px solid #2A2D3E", borderRadius: 8, width: 38, height: 38, color: "#CCD", fontSize: 16 }}
+                  aria-label="Previous month"
+                >‹</button>
+                <div style={{ fontSize: 16, fontWeight: 800 }}>{monthLabel}</div>
+                <button
+                  onClick={goHistoryNextMonth}
+                  disabled={isCurrentHistoryMonth}
+                  style={{
+                    cursor: isCurrentHistoryMonth ? "default" : "pointer",
+                    background: "#161925", border: "1px solid #2A2D3E", borderRadius: 8, width: 38, height: 38,
+                    color: isCurrentHistoryMonth ? "#444" : "#CCD", fontSize: 16,
+                    opacity: isCurrentHistoryMonth ? 0.5 : 1,
+                  }}
+                  aria-label="Next month"
+                >›</button>
+              </div>
+
+              {/* Weekday header */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6, marginBottom: 8 }}>
+                {weekdayLabels.map((l) => (
+                  <div key={l} style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: "#556" }}>{l}</div>
                 ))}
               </div>
-              <div ref={historyScrollRef} className="subtle-scroll" style={{ display: "flex", gap, overflowX: "auto" }}>
+
+              {/* Day grid */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {weeks.map((week, wi) => (
-                  <div key={wi} style={{ display: "flex", flexDirection: "column", gap, flexShrink: 0 }}>
+                  <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
                     {week.map((iso, di) => {
-                      const done = iso && sessionDates.has(iso);
+                      if (iso === null) return <div key={di} />;
+                      const done = sessionDates.has(iso);
+                      const isToday = iso === todayIso;
+                      const day = parseInt(iso.slice(-2), 10);
                       return (
                         <div
                           key={di}
                           style={{
-                            width: cell, height: cell, borderRadius: 2,
-                            background: iso === null ? "transparent" : done ? "#5EC47A" : "#1A1D2E",
-                            border: iso === null ? "none" : `1px solid ${done ? "#5EC47A" : "#2A2D3E"}`,
+                            aspectRatio: "1", borderRadius: 10,
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            background: done ? "#5EC47A" : "#1A1D2E",
+                            border: isToday ? `2px solid ${phase.color}` : `1px solid ${done ? "#5EC47A" : "#2A2D3E"}`,
+                            fontSize: 14, fontWeight: 700,
+                            color: done ? "#0F1117" : "#8a8fa3",
                           }}
-                        />
+                        >
+                          {day}
+                        </div>
                       );
                     })}
                   </div>
@@ -1567,8 +1620,11 @@ export default function App() {
 
       {/* Exercise Picker Modal (swap / add) */}
       {picker && (() => {
-        const exs = exercisesByGroup(pickerGroup).slice().sort((a, b) => a.tier - b.tier);
-        const g = GROUPS[pickerGroup];
+        const isAll = pickerGroup === "all";
+        const exs = isAll
+          ? EXERCISES.slice().sort((a, b) => a.tier - b.tier)
+          : exercisesByGroup(pickerGroup).slice().sort((a, b) => a.tier - b.tier);
+        const g = isAll ? null : GROUPS[pickerGroup];
         return (
           <div
             onClick={() => setPicker(null)}
@@ -1584,6 +1640,12 @@ export default function App() {
                   <button onClick={() => setPicker(null)} style={{ background: "#252840", border: "none", borderRadius: 8, width: 30, height: 30, color: "#AAB", fontSize: 17, cursor: "pointer" }}>×</button>
                 </div>
                 <div className="subtle-scroll" style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }}>
+                  <button
+                    onClick={() => setPickerGroup("all")}
+                    style={{ flexShrink: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, background: isAll ? "#ffffff22" : "#0F1117", border: `1px solid ${isAll ? "#ffffff" : "#2A2D3E"}`, borderRadius: 20, padding: "6px 12px", fontSize: 12.5, fontWeight: 700, color: isAll ? "#fff" : "#888" }}
+                  >
+                    <span style={{ fontSize: 14 }}>🗂️</span>All
+                  </button>
                   {Object.values(GROUPS).map((gr) => {
                     const on = gr.id === pickerGroup;
                     return (
@@ -1599,16 +1661,19 @@ export default function App() {
                 </div>
               </div>
               <div style={{ padding: "14px 20px 24px", overflowY: "auto", flex: 1 }}>
-                <div style={{ fontSize: 12, color: "#8a8fa3", lineHeight: 1.45, marginBottom: 14 }}>{g.blurb}</div>
+                <div style={{ fontSize: 12, color: "#8a8fa3", lineHeight: 1.45, marginBottom: 14 }}>
+                  {isAll ? "Every exercise across every muscle group, in one list." : g.blurb}
+                </div>
                 {[1, 2, 3, 4, 5].map((t) => {
                   const tierExs = exs.filter((e) => e.tier === t);
                   if (!tierExs.length) return null;
                   return (
                     <div key={t} style={{ marginBottom: 14 }}>
-                      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: g.color, marginBottom: 6 }}>Tier {t} · {TIERS[t]}</div>
+                      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: isAll ? "#7e84a0" : g.color, marginBottom: 6 }}>Tier {t} · {TIERS[t]}</div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                         {tierExs.map((e) => {
                           const missing = missingEquipment(e);
+                          const eg = isAll ? GROUPS[e.group] : g;
                           return (
                             <button
                               key={e.id}
@@ -1617,10 +1682,13 @@ export default function App() {
                             >
                               <span style={{ fontSize: 16 }}>{e.icon}</span>
                               <span style={{ flex: 1, minWidth: 0 }}>
-                                <span style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#E8E8E8" }}>{e.name}</span>
+                                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  <span style={{ fontSize: 13, fontWeight: 600, color: "#E8E8E8" }}>{e.name}</span>
+                                  {isAll && <span style={{ fontSize: 9.5, fontWeight: 700, color: eg.color, textTransform: "uppercase", letterSpacing: 0.5 }}>{eg.name}</span>}
+                                </span>
                                 <span style={{ display: "block", fontSize: 11, color: "#667", marginTop: 1 }}>{e.defaultSets}×{e.defaultReps}{missing.length ? ` · need ${missing.map((m) => EQUIPMENT[m]).join(", ")}` : ""}</span>
                               </span>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: g.color, flexShrink: 0 }}>{picker.mode === "swap" ? "Swap in" : "Add"} ›</span>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: eg.color, flexShrink: 0 }}>{picker.mode === "swap" ? "Swap in" : "Add"} ›</span>
                             </button>
                           );
                         })}
