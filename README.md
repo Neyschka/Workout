@@ -7,7 +7,7 @@ A personal calisthenics training app (Vite + React), deployed to GitHub Pages.
 1. Install **Node.js** (LTS version) from https://nodejs.org and **Git** from https://git-scm.com
 2. Clone your repo and enter it:
    ```bash
-   git clone https://github.com/wibbles790/Workout.git
+   git clone https://github.com/Neyschka/Workout.git
    cd Workout
    ```
 3. Copy all the files from this project into the repo folder (including the hidden
@@ -26,13 +26,23 @@ npm run dev
 Open the URL it prints (usually http://localhost:5173). Edits to `src/App.jsx`
 update live in the browser. No build step needed while developing.
 
+## Changing your plan
+
+You don't need to touch any code for this — day to day, use the app itself.
+Tap **✎ Edit plan** on the Workout tab to add, swap, remove, or reorder exercises
+from the built-in exercise library, right on your device. It's saved to that
+device's browser storage automatically.
+
+Editing code is only for changing the app itself (new features, new exercises in
+the library, etc.), not for adjusting your day-to-day plan.
+
 ## Deploy
 
 Just commit and push to the `main` branch:
 
 ```bash
 git add .
-git commit -m "Update plan"
+git commit -m "Describe your change"
 git push
 ```
 
@@ -46,9 +56,11 @@ On GitHub: **Settings → Pages → Build and deployment → Source → "GitHub 
 
 ## Notes
 
-- The site is served at https://wibbles790.github.io/Workout/ — the `base: "/Workout/"`
+- The site is served at https://neyschka.github.io/Workout/ — the `base: "/Workout/"`
   line in `vite.config.js` must match the repo name. If you rename the repo, update it.
-- Your progress (completed sessions, unlocked skills) is saved in the browser via
-  localStorage, per device.
-- All the plan content lives in `src/App.jsx` near the top (the `WORKOUTS`,
-  `SKILL_TREE`, and `EXERCISE_DETAILS` data) if you want to tweak exercises yourself.
+- Your plan, progress (completed sessions, unlocked skills, session history), and
+  owned equipment are all saved in the browser via localStorage, per device.
+- The exercise library (steps, cues, mistakes, tiers, muscle groups) lives in
+  `src/data/exerciseLibrary.js`. Multi-step skill goals (muscle-up, handstand, etc.)
+  live in `src/data/skillQuests.js`. Everything else — UI, tabs, the original curated
+  starter plan — is in `src/App.jsx`.
