@@ -30,6 +30,27 @@ function formatDate(iso) {
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
+const MS_DAY = 86400000;
+// GitHub-style contribution grid: an array of week-columns (oldest first), each
+// a 7-day Sun→Sat column. Days after today are null placeholders (unrendered),
+// so the grid always ends on the current, in-progress week.
+function buildCalendarWeeks(weeksBack = 26) {
+  const now = new Date();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const endOfWeek = new Date(today);
+  endOfWeek.setUTCDate(endOfWeek.getUTCDate() + (6 - endOfWeek.getUTCDay()));
+  const start = new Date(endOfWeek);
+  start.setUTCDate(start.getUTCDate() - (weeksBack * 7 - 1));
+  const days = [];
+  for (let t = start.getTime(); t <= endOfWeek.getTime(); t += MS_DAY) {
+    const d = new Date(t);
+    days.push(d.getTime() > today.getTime() ? null : d.toISOString().slice(0, 10));
+  }
+  const weeks = [];
+  for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
+  return weeks;
+}
+
 // Single brand accent (phases were dropped — the plan is now user-editable).
 const ACCENT = "#4A90A4";
 
@@ -665,6 +686,10 @@ const DEFAULT_PLAN = WORKOUTS.foundation.map((d) => ({
   exercises: d.exercises.map((ex) => ({ ...ex, libId: PLAN_TO_LIBRARY_ID[ex.name] || null })),
 }));
 
+// What a brand-new device starts with: the same Day A/B/C shape, no exercises.
+// The empty-plan UI then guides the user into edit mode to build their own.
+const EMPTY_PLAN = DEFAULT_PLAN.map((d) => ({ day: d.day, subtitle: d.subtitle, exercises: [] }));
+
 function loadPlan() {
   try {
     const raw = localStorage.getItem("cal_plan");
@@ -673,8 +698,10 @@ function loadPlan() {
       if (Array.isArray(p) && p.length) return p;
     }
   } catch (e) {}
-  return JSON.parse(JSON.stringify(DEFAULT_PLAN));
+  return JSON.parse(JSON.stringify(EMPTY_PLAN));
 }
+
+const planIsEmpty = (plan) => plan.every((d) => d.exercises.length === 0);
 
 // Slot counts per muscle group across Day A–C for a given plan.
 function weeklyGroupCounts(plan) {
@@ -708,6 +735,8 @@ export default function App() {
   const [masteredDates, setMasteredDates] = useState(() => loadMap("cal_mastered", { deadhang: null, wallhandstand: null }));
   const unlockedSkills = new Set(Object.keys(masteredDates));
   const [completedDays, setCompletedDays] = useState(() => loadSet("cal_days", []));
+  // Calendar dates (ISO, deduped) a session was completed on — powers the History tab.
+  const [sessionDates, setSessionDates] = useState(() => loadSet("cal_session_dates", []));
   const [selectedExercise, setSelectedExercise] = useState(null);
   const [plan, setPlan] = useState(loadPlan);
   const [editMode, setEditMode] = useState(false);
@@ -728,9 +757,17 @@ export default function App() {
   const [exerciseTimes, setExerciseTimes] = useState([]);
   const timerRef = useRef(null);
   const cooldownRef = useRef(null);
+  const historyScrollRef = useRef(null);
 
   useEffect(() => { saveMap("cal_mastered", masteredDates); }, [masteredDates]);
   useEffect(() => { saveSet("cal_days", completedDays); }, [completedDays]);
+  useEffect(() => { saveSet("cal_session_dates", sessionDates); }, [sessionDates]);
+  // Scroll the History calendar to the current week whenever it's opened.
+  useEffect(() => {
+    if (tab === "history" && historyScrollRef.current) {
+      historyScrollRef.current.scrollLeft = historyScrollRef.current.scrollWidth;
+    }
+  }, [tab]);
   useEffect(() => { saveSet("cal_equipment", ownedEquipment); }, [ownedEquipment]);
   useEffect(() => { try { localStorage.setItem("cal_plan", JSON.stringify(plan)); } catch (e) {} }, [plan]);
 
@@ -834,6 +871,7 @@ export default function App() {
     setTimerSeconds(0);
     if (sessionExIndex === exercises.length - 1) {
       setSessionFinished(true);
+      recordSessionCompletion();
     } else {
       setInCooldown(true);
       setCooldownSeconds(120);
@@ -858,6 +896,7 @@ export default function App() {
   const resetProgress = () => {
     if (window.confirm("Reset all completed sessions and mastered exercises? This cannot be undone.")) {
       setCompletedDays(new Set());
+      setSessionDates(new Set());
       setMasteredDates({ deadhang: null, wallhandstand: null });
     }
   };
@@ -942,23 +981,16 @@ export default function App() {
     setDragIndex(null);
   };
 
-  const dayKey = `day-${activeDay}`;
-  const toggleDay = () => {
-    setCompletedDays((prev) => {
-      const next = new Set(prev);
-      if (next.has(dayKey)) {
-        next.delete(dayKey);
-      } else {
-        next.add(dayKey);
-        // Completing a day is real evidence — auto-check its exercises (dated today)
-        // in the Skill Tree if not already recorded.
-        setMasteredDates((md) => {
-          const grown = { ...md };
-          exerciseIdsForDay(plan, activeDay).forEach((id) => { if (!(id in grown)) grown[id] = todayISO(); });
-          return grown;
-        });
-      }
-      return next;
+  // Called when a session runs through to its last exercise — records the day
+  // as done, logs today's date for the History calendar, and grows mastered
+  // exercises (dated today) as real evidence, if not already recorded.
+  const recordSessionCompletion = () => {
+    setCompletedDays((prev) => new Set(prev).add(`day-${activeDay}`));
+    setSessionDates((prev) => new Set(prev).add(todayISO()));
+    setMasteredDates((md) => {
+      const grown = { ...md };
+      exerciseIdsForDay(plan, activeDay).forEach((id) => { if (!(id in grown)) grown[id] = todayISO(); });
+      return grown;
     });
   };
 
@@ -1060,6 +1092,29 @@ export default function App() {
             )}
 
             {/* Exercises */}
+            {!editMode && workout.exercises.length === 0 ? (
+              <div style={{
+                textAlign: "center", padding: "40px 24px", marginBottom: 16,
+                background: "#1A1D2E", border: "1px dashed #2A2D3E", borderRadius: 12,
+              }}>
+                <div style={{ fontSize: 40, marginBottom: 14 }}>🗒️</div>
+                <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 8 }}>No plan yet</div>
+                <div style={{ fontSize: 13, color: "#8a8fb0", lineHeight: 1.6, marginBottom: 20, maxWidth: 320, marginLeft: "auto", marginRight: "auto" }}>
+                  Build a 3-day plan from the exercise library — pick what you enjoy and what
+                  equipment you have, and edit it any time.
+                </div>
+                <button
+                  onClick={() => setEditMode(true)}
+                  style={{
+                    cursor: "pointer", background: phase.color, border: "none",
+                    borderRadius: 9, padding: "13px 26px", fontSize: 14, fontWeight: 700,
+                    color: "#fff",
+                  }}
+                >
+                  Build my plan
+                </button>
+              </div>
+            ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
               {workout.exercises.map((ex, i) => {
                 const lib = BY_ID[libIdFor(ex)];
@@ -1142,6 +1197,7 @@ export default function App() {
                 </button>
               )}
             </div>
+            )}
 
             {/* Muscle coverage guidance — only while editing, so an uninformed user
                 still knows how many of each type to include as they choose exercises. */}
@@ -1353,6 +1409,42 @@ export default function App() {
             </>
           );
         })()}
+
+        {tab === "history" && (() => {
+          const weeks = buildCalendarWeeks(26);
+          const weekdayLabels = ["S", "M", "T", "W", "T", "F", "S"];
+          const cell = 11, gap = 3;
+          return (
+            <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap }}>
+                {weekdayLabels.map((l, i) => (
+                  <div key={i} style={{ width: cell, height: cell, fontSize: 9, color: "#556", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {i % 2 === 1 ? l : ""}
+                  </div>
+                ))}
+              </div>
+              <div ref={historyScrollRef} className="subtle-scroll" style={{ display: "flex", gap, overflowX: "auto" }}>
+                {weeks.map((week, wi) => (
+                  <div key={wi} style={{ display: "flex", flexDirection: "column", gap, flexShrink: 0 }}>
+                    {week.map((iso, di) => {
+                      const done = iso && sessionDates.has(iso);
+                      return (
+                        <div
+                          key={di}
+                          style={{
+                            width: cell, height: cell, borderRadius: 2,
+                            background: iso === null ? "transparent" : done ? "#5EC47A" : "#1A1D2E",
+                            border: iso === null ? "none" : `1px solid ${done ? "#5EC47A" : "#2A2D3E"}`,
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Bottom tab bar — fixed, native-app style */}
@@ -1366,6 +1458,7 @@ export default function App() {
           {[
             { id: "plan", label: "Workout", icon: "🏋️" },
             { id: "skills", label: "Skills", icon: "⭐" },
+            { id: "history", label: "History", icon: "📅" },
           ].map((t) => (
             <button
               key={t.id}
