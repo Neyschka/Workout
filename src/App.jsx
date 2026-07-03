@@ -703,6 +703,9 @@ function loadPlan() {
 
 const planIsEmpty = (plan) => plan.every((d) => d.exercises.length === 0);
 
+// Every localStorage key this app writes — used by the hidden factory reset.
+const CAL_STORAGE_KEYS = ["cal_plan", "cal_mastered", "cal_days", "cal_session_dates", "cal_equipment"];
+
 // Slot counts per muscle group across Day A–C for a given plan.
 function weeklyGroupCounts(plan) {
   const counts = { push: 0, pull: 0, legs: 0, core: 0, shoulders: 0, grip: 0 };
@@ -758,6 +761,7 @@ export default function App() {
   const timerRef = useRef(null);
   const cooldownRef = useRef(null);
   const historyScrollRef = useRef(null);
+  const factoryResetTimerRef = useRef(null);
 
   useEffect(() => { saveMap("cal_mastered", masteredDates); }, [masteredDates]);
   useEffect(() => { saveSet("cal_days", completedDays); }, [completedDays]);
@@ -901,6 +905,19 @@ export default function App() {
     }
   };
 
+  // Hidden factory reset: hold the logo for 5s to wipe this device back to a
+  // brand-new install (plan, history, mastered skills, equipment).
+  const startFactoryResetHold = () => {
+    clearTimeout(factoryResetTimerRef.current);
+    factoryResetTimerRef.current = setTimeout(() => {
+      if (window.confirm("Reset this device to a brand-new install? This clears your plan, history, and skill progress. This cannot be undone.")) {
+        CAL_STORAGE_KEYS.forEach((k) => { try { localStorage.removeItem(k); } catch (e) {} });
+        window.location.reload();
+      }
+    }, 5000);
+  };
+  const cancelFactoryResetHold = () => clearTimeout(factoryResetTimerRef.current);
+
   const phase = { color: ACCENT };
   const workouts = plan;
   const workout = workouts[activeDay] || workouts[0];
@@ -1016,7 +1033,13 @@ export default function App() {
       {/* Header — compact app title bar, no desktop-style underline tabs */}
       <div style={{ background: "#12141c", borderBottom: "1px solid #2A2D3E", padding: "calc(env(safe-area-inset-top, 0px) + 14px) calc(env(safe-area-inset-right, 0px) + 20px) 14px calc(env(safe-area-inset-left, 0px) + 20px)", position: "sticky", top: 0, zIndex: 50 }}>
         <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <h1 style={{ margin: 0, fontSize: 19, fontWeight: 800, letterSpacing: -0.5 }}>
+          <h1
+            onPointerDown={startFactoryResetHold}
+            onPointerUp={cancelFactoryResetHold}
+            onPointerLeave={cancelFactoryResetHold}
+            onPointerCancel={cancelFactoryResetHold}
+            style={{ margin: 0, fontSize: 19, fontWeight: 800, letterSpacing: -0.5, userSelect: "none", WebkitUserSelect: "none" }}
+          >
             Lever<span style={{ color: phase.color }}>.</span>
           </h1>
         </div>
