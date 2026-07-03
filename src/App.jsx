@@ -938,6 +938,12 @@ export default function App() {
   });
 
   // --- Plan editing ---
+  const toggleEditMode = () => {
+    setEditMode((e) => {
+      if (e) window.scrollTo(0, 0); // closing edit mode — reset scroll to the top
+      return !e;
+    });
+  };
   const slotFromLib = (e) => ({
     name: e.name, sets: e.defaultSets, reps: e.defaultReps, note: "", icon: e.icon, libId: e.id,
   });
@@ -1267,7 +1273,7 @@ export default function App() {
                 already has its own "Build my plan" button to reach edit mode. */}
             {(editMode || workout.exercises.length > 0) && (
             <button
-              onClick={() => setEditMode((e) => !e)}
+              onClick={toggleEditMode}
               style={{
                 width: "100%", cursor: "pointer",
                 background: editMode ? phase.color : "transparent",
