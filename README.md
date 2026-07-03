@@ -36,24 +36,6 @@ device's browser storage automatically.
 Editing code is only for changing the app itself (new features, new exercises in
 the library, etc.), not for adjusting your day-to-day plan.
 
-## Deploy
-
-Just commit and push to the `main` branch:
-
-```bash
-git add .
-git commit -m "Describe your change"
-git push
-```
-
-The GitHub Action (`.github/workflows/deploy.yml`) builds the app and publishes it
-automatically. Watch progress under the **Actions** tab on GitHub.
-
-## IMPORTANT: switch Pages to GitHub Actions (one time)
-
-On GitHub: **Settings → Pages → Build and deployment → Source → "GitHub Actions"**
-(instead of "Deploy from a branch"). This only needs doing once.
-
 ## Notes
 
 - The site is served at https://neyschka.github.io/Workout/ — the `base: "/Workout/"`
