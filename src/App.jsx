@@ -117,7 +117,7 @@ const WORKOUTS = {
       exercises: [
         { name: "Pull-Up (band assisted or full)", sets: "4", reps: "4–8", note: "Use your resistance band looped over the bar — reduce assistance each week", icon: "⬆️" },
         { name: "Ring Row (body horizontal)", sets: "4", reps: "8–10", note: "More horizontal = harder — excellent rear delt and upper back work", icon: "💍" },
-        { name: "Band Face Pull", sets: "3", reps: "15–20", note: "Still doing these every session — non-negotiable for shoulder health alongside the heavier pressing you're now doing", icon: "🎯" },
+        { name: "Band Face Pull", sets: "3", reps: "15–20", note: "Worth keeping in every session — shoulder-health work like this matters even as pressing volume increases", icon: "🎯" },
         { name: "Dumbbell Row", sets: "3", reps: "10 each", note: "One arm, lean on bench — mid-back thickness", icon: "🏋️" },
         { name: "Romanian Deadlift (dumbbells)", sets: "3", reps: "10–12", note: "Hinge at hips, slight knee bend, weights track down legs — hamstrings and glutes without loading the spine heavily", icon: "🦿" },
       ],
@@ -153,7 +153,7 @@ const WORKOUTS = {
         { name: "Muscle-Up Progression", sets: "5", reps: "3–5", note: "Start with banded or jumping muscle-up — the king of ring skills", icon: "👑" },
         { name: "Pull-Up (weighted or archer)", sets: "4", reps: "5–6", note: "Add dumbbell between feet, or archer (one arm extended)", icon: "⬆️" },
         { name: "Ring Dip", sets: "4", reps: "8–10", note: "Full control, pause at bottom", icon: "💍" },
-        { name: "Band Face Pull", sets: "3", reps: "15–20", note: "Still here — shoulder prehab never stops, especially now you're doing muscle-ups and heavy pressing", icon: "🎯" },
+        { name: "Band Face Pull", sets: "3", reps: "15–20", note: "Shoulder prehab like this is worth keeping even as pressing and pulling volume ramps up", icon: "🎯" },
         { name: "Romanian Deadlift (heavy)", sets: "4", reps: "8–10", note: "Increase weight from Phase 2 — strong posterior chain supports every skill", icon: "🦿" },
       ],
     },
@@ -259,7 +259,7 @@ const EXERCISE_DETAILS = [
     ],
     cues: ["Lead with the elbows, not the hands", "Imagine pouring a jug of water at the top"],
     mistakes: ["Swinging the weights up with momentum", "Raising above shoulder height, which can aggravate the shoulder"],
-    shoulder: "Builds the side delt for shoulder width. Keep it light given your cuff — controlled reps matter far more than weight here.",
+    shoulder: "Builds the side delt for shoulder width. Keep it light and controlled — useful for anyone managing a shoulder or rotator cuff issue, since strict form matters far more than weight here.",
   },
   {
     match: "Face Pull",
@@ -298,6 +298,7 @@ const EXERCISE_DETAILS = [
     ],
     cues: ["Fight gravity the whole way down", "Keep shoulder blades pulling down"],
     mistakes: ["Dropping quickly instead of resisting", "Shrugging at the top"],
+    tip: "Negatives build strength faster than assisted positives, because you can control far more weight lowering down than you can lift back up.",
   },
   {
     match: "Pull-Up",
@@ -310,6 +311,7 @@ const EXERCISE_DETAILS = [
     ],
     cues: ["Lead with the chest, not the chin", "Imagine pulling the bar down to you"],
     mistakes: ["Kipping/swinging for momentum", "Not going all the way to a full hang each rep"],
+    tip: "A grip just outside shoulder width targets the lats best — going much wider shortens the range of motion and shifts load onto the biceps and forearms.",
   },
   {
     match: "Ring Row",
@@ -387,7 +389,7 @@ const EXERCISE_DETAILS = [
     ],
     cues: ["Stack hips over shoulders for more load", "Elbows track slightly forward, not flared"],
     mistakes: ["Turning it into a normal push-up by dropping the hips", "Flaring elbows wide"],
-    shoulder: "This loads the shoulder overhead, so only introduce it once your Phase 1 cuff work feels solid and pain-free.",
+    shoulder: "This loads the shoulder overhead — good to introduce once foundational shoulder prehab (band work, face pulls) feels solid and pain-free.",
   },
   {
     match: "Push-Up",
@@ -400,6 +402,7 @@ const EXERCISE_DETAILS = [
     ],
     cues: ["Squeeze glutes and brace the core", "Elbows back at ~45°, not flared to 90°"],
     mistakes: ["Sagging hips", "Flaring elbows straight out to the sides"],
+    tip: "Elevating the hands reduces the load compared to a flat push-up, making it an easy way to regress the exercise without changing the movement pattern.",
   },
   {
     match: "Plank",
@@ -412,6 +415,7 @@ const EXERCISE_DETAILS = [
     ],
     cues: ["Tuck the ribs down and tilt the pelvis slightly under", "Don't let the hips rise or sag"],
     mistakes: ["Hips creeping up into a peak", "Letting the lower back sag"],
+    tip: "Longer holds aren't the only way to progress — removing a point of contact (lifting one foot) adds difficulty without changing the duration.",
   },
   {
     match: "Hollow Body",
@@ -424,6 +428,7 @@ const EXERCISE_DETAILS = [
     ],
     cues: ["Lower back stays glued to the floor the whole time", "Keep it tight, not floppy"],
     mistakes: ["Lower back arching off the floor", "Lifting too high so it becomes easy"],
+    tip: "This shape underlies almost every gymnastics skill in this plan, from handstands to the front lever — time spent here transfers everywhere.",
   },
   {
     match: "Dead Bug",
@@ -436,6 +441,7 @@ const EXERCISE_DETAILS = [
     ],
     cues: ["Move slowly and keep the lower back pinned", "Exhale as you extend"],
     mistakes: ["Letting the back arch as the limbs extend", "Rushing the reps"],
+    tip: "Speed is the enemy here — rushing the reps turns it into a hip-flexor exercise instead of a core-control drill.",
   },
   {
     match: "Glute Bridge",
@@ -448,6 +454,7 @@ const EXERCISE_DETAILS = [
     ],
     cues: ["Push through the heels", "Squeeze the glutes, don't arch the lower back"],
     mistakes: ["Overarching the lower back at the top", "Pushing through the toes"],
+    tip: "A brief pause and hard squeeze at the top recruits far more glute than reps done quickly.",
   },
   {
     match: "Bulgarian Split Squat",
@@ -460,6 +467,7 @@ const EXERCISE_DETAILS = [
     ],
     cues: ["Keep the front shin fairly vertical", "Stay tall through the torso"],
     mistakes: ["Front knee caving inward", "Leaning too far forward and loading the back leg"],
+    tip: "Training one leg at a time exposes and corrects side-to-side strength imbalances that two-legged squats can hide.",
   },
   {
     match: "Romanian Deadlift",
@@ -472,6 +480,7 @@ const EXERCISE_DETAILS = [
     ],
     cues: ["Hinge at the hips, don't squat", "Keep the back flat and weights close to the legs"],
     mistakes: ["Rounding the lower back", "Turning it into a squat by bending the knees too much"],
+    tip: "This trains the hip-hinge pattern that protects the lower back when lifting anything heavy off the floor — useful well beyond the gym.",
   },
   {
     match: "Dumbbell Row",
@@ -484,6 +493,7 @@ const EXERCISE_DETAILS = [
     ],
     cues: ["Pull to the hip, not the shoulder", "Keep the back flat and still"],
     mistakes: ["Rotating the torso to heave the weight", "Shrugging the shoulder"],
+    tip: "Rowing to the hip keeps the lats doing the work; rowing higher toward the chest shifts emphasis onto the rear delts and traps instead.",
   },
   {
     match: "L-Sit",
@@ -496,6 +506,7 @@ const EXERCISE_DETAILS = [
     ],
     cues: ["Push the floor away to depress the shoulders", "Round the lower back slightly into a hollow"],
     mistakes: ["Letting the shoulders shrug up", "Leaning too far back"],
+    tip: "Hip-flexor compression, not just straight arms, is what makes this hard — expect the hip flexors to fatigue before the shoulders do.",
   },
   {
     match: "Wall Handstand",
@@ -521,6 +532,7 @@ const EXERCISE_DETAILS = [
     ],
     cues: ["Tiny weight shift, not a big lean", "Stay tight through the core"],
     mistakes: ["Collapsing to one side", "Rushing the taps"],
+    tip: "A useful diagnostic: if the plain wall handstand feels stable, taps should feel controlled. If they feel scary, spend more time on the plain hold first.",
   },
   {
     match: "Handstand Wall Run",
@@ -1196,7 +1208,7 @@ export default function App() {
           return (
             <>
               <p style={{ fontSize: 13, color: "#778", marginBottom: 18, lineHeight: 1.6 }}>
-                Your current level across every muscle group — exercises check off automatically, with the date, once you complete a workout that includes them. Tap a track to see every exercise at each tier; tap any exercise for how to do it.
+                Your current level across every muscle group — exercises check off automatically once you complete a workout that includes them. Tap a track to see every exercise at each tier; tap any exercise for how to do it.
               </p>
 
               {/* Radar */}
@@ -1296,7 +1308,7 @@ export default function App() {
 
               {/* Skill quests */}
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#7e84a0", marginBottom: 4 }}>Skill Quests</div>
-              <p style={{ fontSize: 12.5, color: "#778", margin: "0 0 14px", lineHeight: 1.5 }}>Steps check off automatically as you complete workouts that include them. Tap any step for how to do it. These cut across muscle groups — the fun, linear goals.</p>
+              <p style={{ fontSize: 12.5, color: "#778", margin: "0 0 14px", lineHeight: 1.5 }}>Steps check off automatically as you complete workouts that include them. Tap any step for how to do it.</p>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 {SKILL_QUESTS.map((q) => {
                   const doneCount = q.steps.filter((id) => unlockedSkills.has(id)).length;
@@ -1353,7 +1365,7 @@ export default function App() {
         <div style={{ maxWidth: 640, margin: "0 auto", display: "flex" }}>
           {[
             { id: "plan", label: "Workout", icon: "🏋️" },
-            { id: "skills", label: "Skill Tree", icon: "🌳" },
+            { id: "skills", label: "Skills", icon: "⭐" },
           ].map((t) => (
             <button
               key={t.id}
@@ -1736,7 +1748,7 @@ export default function App() {
                         </div>
 
                         {/* Avoid */}
-                        <div style={{ marginBottom: d.shoulder ? 16 : 0 }}>
+                        <div style={{ marginBottom: (d.shoulder || d.tip) ? 16 : 0 }}>
                           <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase", color: "#E0884A", fontWeight: 700, marginBottom: 10 }}>✕ Avoid</div>
                           <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                             {d.mistakes.map((m, i) => (
@@ -1749,11 +1761,21 @@ export default function App() {
 
                         {/* Shoulder note */}
                         {d.shoulder && (
-                          <div style={{ background: "#1E2A3A", border: "1px solid #2E5A7A", borderRadius: 10, padding: "13px 15px" }}>
+                          <div style={{ background: "#1E2A3A", border: "1px solid #2E5A7A", borderRadius: 10, padding: "13px 15px", marginBottom: d.tip ? 12 : 0 }}>
                             <div style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: "#6BB6E0", fontWeight: 700, marginBottom: 5, display: "flex", alignItems: "center", gap: 6 }}>
                               🩹 Shoulder note
                             </div>
                             <div style={{ fontSize: 13, color: "#AECDE0", lineHeight: 1.5 }}>{d.shoulder}</div>
+                          </div>
+                        )}
+
+                        {/* General tip */}
+                        {d.tip && (
+                          <div style={{ background: "#1E2A1E", border: "1px solid #2E5A3A", borderRadius: 10, padding: "13px 15px" }}>
+                            <div style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: "#6BE08A", fontWeight: 700, marginBottom: 5, display: "flex", alignItems: "center", gap: 6 }}>
+                              💡 Tip
+                            </div>
+                            <div style={{ fontSize: 13, color: "#AEE0BC", lineHeight: 1.5 }}>{d.tip}</div>
                           </div>
                         )}
                       </>
