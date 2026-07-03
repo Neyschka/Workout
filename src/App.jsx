@@ -948,9 +948,7 @@ export default function App() {
     setPicker({ mode: "swap", dayIndex, slotIndex });
   };
   const openAdd = (dayIndex) => {
-    const counts = weeklyGroupCounts(plan);
-    const under = AXES.find((g) => (counts[g] || 0) < (RECOMMENDED_COUNTS[g] || 0));
-    setPickerGroup(under || "push");
+    setPickerGroup("all");
     setPicker({ mode: "add", dayIndex });
   };
   const chooseExercise = (e) => {
