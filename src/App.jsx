@@ -761,6 +761,8 @@ export default function App() {
   const timerRef = useRef(null);
   const cooldownRef = useRef(null);
   const factoryResetTimerRef = useRef(null);
+  const headerRef = useRef(null);        // sticky header, for scroll offset
+  const trackRefs = useRef({});          // Skills-tab track cards, keyed by group id
   // Which month the History calendar is showing — starts on the current month.
   const [historyMonth, setHistoryMonth] = useState(() => {
     const now = new Date();
@@ -927,6 +929,24 @@ export default function App() {
     setHistoryMonth(({ year, month }) => (month === 11 ? { year: year + 1, month: 0 } : { year, month: month + 1 }));
   };
 
+  // Toggle a Skills-tab track; when opening one, scroll so its top sits just below
+  // the sticky header (so the newly revealed exercises are in view).
+  const toggleTrack = (groupId) => {
+    setExpandedTrackGroup((cur) => {
+      const opening = cur !== groupId;
+      if (opening) {
+        requestAnimationFrame(() => {
+          const el = trackRefs.current[groupId];
+          if (!el) return;
+          const headerH = headerRef.current ? headerRef.current.offsetHeight : 0;
+          const y = el.getBoundingClientRect().top + window.scrollY - headerH - 8;
+          window.scrollTo({ top: y, behavior: "smooth" });
+        });
+      }
+      return opening ? groupId : null;
+    });
+  };
+
   const phase = { color: ACCENT };
   const workouts = plan;
   const workout = workouts[activeDay] || workouts[0];
@@ -1044,7 +1064,7 @@ export default function App() {
   return (
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", minHeight: "100vh", background: "#0F1117", color: "#E8E8E8" }}>
       {/* Header — compact app title bar, no desktop-style underline tabs */}
-      <div style={{ background: "#12141c", borderBottom: "1px solid #2A2D3E", padding: "calc(env(safe-area-inset-top, 0px) + 14px) calc(env(safe-area-inset-right, 0px) + 20px) 14px calc(env(safe-area-inset-left, 0px) + 20px)", position: "sticky", top: 0, zIndex: 50 }}>
+      <div ref={headerRef} style={{ background: "#12141c", borderBottom: "1px solid #2A2D3E", padding: "calc(env(safe-area-inset-top, 0px) + 14px) calc(env(safe-area-inset-right, 0px) + 20px) 14px calc(env(safe-area-inset-left, 0px) + 20px)", position: "sticky", top: 0, zIndex: 50 }}>
         <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <h1
             onPointerDown={startFactoryResetHold}
@@ -1345,9 +1365,9 @@ export default function App() {
                   const curTier = masteredTierForGroup(g.id, unlockedSkills);
                   const isOpen = expandedTrackGroup === g.id;
                   return (
-                    <div key={g.id} style={{ background: "#161925", border: "1px solid #2A2D3E", borderRadius: 12, overflow: "hidden" }}>
+                    <div key={g.id} ref={(el) => { trackRefs.current[g.id] = el; }} style={{ background: "#161925", border: "1px solid #2A2D3E", borderRadius: 12, overflow: "hidden", scrollMarginTop: 8 }}>
                       <button
-                        onClick={() => setExpandedTrackGroup(isOpen ? null : g.id)}
+                        onClick={() => toggleTrack(g.id)}
                         style={{ width: "100%", display: "flex", alignItems: "center", gap: 9, padding: "14px 16px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
                       >
                         <span style={{ fontSize: 18 }}>{g.icon}</span>
@@ -1410,54 +1430,59 @@ export default function App() {
                   );
                 })}
               </div>
-
-              {/* Skill quests */}
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#7e84a0", marginBottom: 4 }}>Skill Quests</div>
-              <p style={{ fontSize: 12.5, color: "#778", margin: "0 0 14px", lineHeight: 1.5 }}>Steps check off automatically as you complete workouts that include them. Tap any step for how to do it.</p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {SKILL_QUESTS.map((q) => {
-                  const doneCount = q.steps.filter((id) => unlockedSkills.has(id)).length;
-                  return (
-                    <div key={q.id} style={{ background: "#161925", border: "1px solid #2A2D3E", borderRadius: 12, padding: "13px 14px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 3 }}>
-                        <span style={{ fontSize: 17 }}>{q.icon}</span>
-                        <span style={{ fontSize: 14, fontWeight: 800 }}>{q.name}</span>
-                        <span style={{ marginLeft: "auto", fontSize: 11, color: q.color, fontWeight: 700 }}>{doneCount}/{q.steps.length}</span>
-                      </div>
-                      <div style={{ fontSize: 11.5, color: "#778", marginBottom: 11, lineHeight: 1.4 }}>{q.goal}</div>
-                      <div className="subtle-scroll" style={{ display: "flex", alignItems: "center", overflowX: "auto", paddingBottom: 2 }}>
-                        {q.steps.map((id, i) => {
-                          const e = BY_ID[id];
-                          if (!e) return null;
-                          const unlocked = unlockedSkills.has(id);
-                          return (
-                            <div key={id} style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
-                              <button
-                                onClick={() => openLibInfo(e)}
-                                style={{
-                                  display: "flex", alignItems: "center", gap: 6,
-                                  background: unlocked ? `${q.color}22` : "#0F1117",
-                                  border: `1px solid ${unlocked ? q.color : "#2A2D3E"}`,
-                                  borderRadius: 18, padding: "6px 11px 6px 8px",
-                                  cursor: "pointer", whiteSpace: "nowrap",
-                                }}
-                              >
-                                <span style={{ fontSize: 14 }}>{e.icon}</span>
-                                <span style={{ fontSize: 11.5, fontWeight: 600, color: unlocked ? "#E8E8E8" : "#888" }}>{e.name}</span>
-                                {unlocked && <span style={{ fontSize: 10, color: q.color }}>✓</span>}
-                              </button>
-                              {i < q.steps.length - 1 && <span style={{ color: "#3f4456", fontSize: 14, margin: "0 4px", flexShrink: 0 }}>→</span>}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
             </>
           );
         })()}
+
+        {tab === "quests" && (
+          <>
+            <p style={{ fontSize: 13, color: "#778", marginBottom: 18, lineHeight: 1.6 }}>
+              Longer-term skill goals, each a chain of steps that build toward it. Steps check off
+              automatically as you complete workouts that include them. Tap any step for how to do it.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {SKILL_QUESTS.map((q) => {
+                const doneCount = q.steps.filter((id) => unlockedSkills.has(id)).length;
+                return (
+                  <div key={q.id} style={{ background: "#161925", border: "1px solid #2A2D3E", borderRadius: 12, padding: "13px 14px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 3 }}>
+                      <span style={{ fontSize: 17 }}>{q.icon}</span>
+                      <span style={{ fontSize: 14, fontWeight: 800 }}>{q.name}</span>
+                      <span style={{ marginLeft: "auto", fontSize: 11, color: q.color, fontWeight: 700 }}>{doneCount}/{q.steps.length}</span>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: "#778", marginBottom: 11, lineHeight: 1.4 }}>{q.goal}</div>
+                    <div className="subtle-scroll" style={{ display: "flex", alignItems: "center", overflowX: "auto", paddingBottom: 2 }}>
+                      {q.steps.map((id, i) => {
+                        const e = BY_ID[id];
+                        if (!e) return null;
+                        const unlocked = unlockedSkills.has(id);
+                        return (
+                          <div key={id} style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+                            <button
+                              onClick={() => openLibInfo(e)}
+                              style={{
+                                display: "flex", alignItems: "center", gap: 6,
+                                background: unlocked ? `${q.color}22` : "#0F1117",
+                                border: `1px solid ${unlocked ? q.color : "#2A2D3E"}`,
+                                borderRadius: 18, padding: "6px 11px 6px 8px",
+                                cursor: "pointer", whiteSpace: "nowrap",
+                              }}
+                            >
+                              <span style={{ fontSize: 14 }}>{e.icon}</span>
+                              <span style={{ fontSize: 11.5, fontWeight: 600, color: unlocked ? "#E8E8E8" : "#888" }}>{e.name}</span>
+                              {unlocked && <span style={{ fontSize: 10, color: q.color }}>✓</span>}
+                            </button>
+                            {i < q.steps.length - 1 && <span style={{ color: "#3f4456", fontSize: 14, margin: "0 4px", flexShrink: 0 }}>→</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
 
         {tab === "history" && (() => {
           const weeks = buildMonthGrid(historyMonth.year, historyMonth.month);
@@ -1542,6 +1567,7 @@ export default function App() {
           {[
             { id: "plan", label: "Workout", icon: "🏋️" },
             { id: "skills", label: "Skills", icon: "⭐" },
+            { id: "quests", label: "Quests", icon: "🎯" },
             { id: "history", label: "History", icon: "📅" },
           ].map((t) => (
             <button
@@ -1728,7 +1754,7 @@ export default function App() {
             }}>
               <div>
                 <div style={{ fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: phase.color, fontWeight: 600 }}>
-                  {workout.day} — {workout.subtitle}
+                  {workout.day}
                 </div>
                 <div style={{ fontSize: 13, color: "#667", marginTop: 2 }}>
                   {sessionFinished ? "Session complete" : `Exercise ${sessionExIndex + 1} of ${exercises.length}`}
@@ -1886,11 +1912,14 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Coach's note */}
+                    {/* Coach's note — only when the slot actually has one (library-added
+                        exercises have an empty note, so this stays hidden for them). */}
+                    {ex.note && (
                     <div style={{ background: "#12151F", borderLeft: `3px solid ${phase.color}`, borderRadius: 8, padding: "12px 14px", marginBottom: 16 }}>
                       <div style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: phase.color, fontWeight: 700, marginBottom: 4 }}>Coach's note</div>
                       <div style={{ fontSize: 13, color: "#AAB", lineHeight: 1.5 }}>{ex.note}</div>
                     </div>
+                    )}
 
                     {/* YouTube link */}
                     <a
