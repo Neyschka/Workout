@@ -72,17 +72,23 @@ Key data structures and helpers, all near the top of `src/App.jsx`:
 
 UI: three bottom tabs — **Workout** (the editable plan, day picker, session runner),
 **Skills** (radar chart + muscle-group tracks + skill quests, driven by the shared
-exercise library), and **History** (a read-only calendar of completed-session dates,
-no commentary by design). Tapping an exercise opens a centred, scrollable detail
+exercise library), and **History** (a calendar of training days; tapping a green day
+lists the sets logged that day, no commentary by design). Tapping an exercise opens a centred, scrollable detail
 modal. Progress persists to `localStorage`: `cal_plan` (the user's plan),
 `cal_mastered` (id → date mastered), `cal_days` (which of Day A/B/C have ever been
 completed), `cal_session_dates` (calendar dates a session was completed — powers
 History), `cal_equipment` (owned equipment, used to grey out exercises you can't
 do), `cal_log` (weight log: exercise id → `[{ date, sets: [{ kg, reps }] }]`, one entry
-per exercise per day, written when you leave an exercise in the session runner),
-`cal_plan_version`. The session runner shows last time's sets and suggests adding
-weight once every set hit the top of the rep range (`assisted: true` exercises log
-assistance, so less = harder). Holding the "Lever." logo for 5s triggers a hidden factory-reset confirm that
+per exercise per day), `cal_plan_version`.
+
+Session runner (modelled on gym apps like Strong/Hevy): a whole-session clock in the
+header; each set is a row prefilled with last time's kg/reps, and ticking it saves it
+to `cal_log` immediately (only ticked sets are saved) and starts a rest countdown
+(`restSecondsFor`: 90s main lifts, 60s core/2-set accessories) in a bar pinned to the
+bottom, with ±15s/Skip (no sound by design; a vibrate where supported, not iOS). Timed holds (rep range ending in "s") get a hold
+stopwatch that fills and ticks the next set. Timing is timestamp-based so it survives
+the phone sleeping. It suggests adding weight once every set hit the top of the rep
+range last time (`assisted: true` exercises log assistance, so less = harder). Holding the "Lever." logo for 5s triggers a hidden factory-reset confirm that
 clears all of the above and reloads — the escape hatch back to a brand-new install.
 
 ## Conventions / gotchas
