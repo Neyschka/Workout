@@ -18,9 +18,9 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; background: #0F1117; }
   #root { min-height: 100vh; }
-  /* Hidden horizontal scrollbars for overflowing rows (skill quests, picker chips) — still scrollable, just no visible bar */
-  .subtle-scroll { scrollbar-width: none; }
-  .subtle-scroll::-webkit-scrollbar { display: none; }
+  /* No visible scrollbars anywhere — everything still scrolls, just without the bar */
+  * { scrollbar-width: none; }
+  *::-webkit-scrollbar { display: none; }
 </style>
 </head>
 <body>

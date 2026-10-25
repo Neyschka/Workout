@@ -939,7 +939,8 @@ export default function App() {
   };
   const skipRest = () => setRestEndsAt(null);
 
-  // Rows start prefilled with last time's numbers, all un-ticked.
+  // Rows start prefilled with the most recent logged numbers (today's, if you're
+  // redoing a session), all un-ticked.
   const startSession = () => {
     setSessionExIndex(0);
     setSessionFinished(false);
@@ -949,7 +950,7 @@ export default function App() {
     setRestEndsAt(null);
     setHoldStartMs(null);
     setSessionSets(workout.exercises.map((ex) => {
-      const last = lastLogEntry(ex);
+      const last = (weightLog[logKeyFor(ex)] || []).slice(-1)[0];
       const count = Math.max(parseInt(ex.sets, 10) || 3, last ? last.sets.length : 0);
       return Array.from({ length: count }, (_, j) => {
         const s = last ? (last.sets[j] || last.sets[last.sets.length - 1]) : null;
@@ -1603,7 +1604,7 @@ export default function App() {
                       <span style={{ marginLeft: "auto", fontSize: 11, color: q.color, fontWeight: 700 }}>{doneCount}/{q.steps.length}</span>
                     </div>
                     <div style={{ fontSize: 11.5, color: "#778", marginBottom: 11, lineHeight: 1.4 }}>{q.goal}</div>
-                    <div className="subtle-scroll" style={{ display: "flex", alignItems: "center", overflowX: "auto", paddingBottom: 2 }}>
+                    <div style={{ display: "flex", alignItems: "center", overflowX: "auto", paddingBottom: 2 }}>
                       {q.steps.map((id, i) => {
                         const e = BY_ID[id];
                         if (!e) return null;
@@ -1859,7 +1860,7 @@ export default function App() {
                   <span style={{ fontSize: 16, fontWeight: 800 }}>{picker.mode === "swap" ? "Swap exercise" : "Add exercise"}</span>
                   <button onClick={() => setPicker(null)} style={{ background: "#252840", border: "none", borderRadius: 8, width: 30, height: 30, color: "#AAB", fontSize: 17, cursor: "pointer" }}>×</button>
                 </div>
-                <div className="subtle-scroll" style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }}>
+                <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }}>
                   <button
                     onClick={() => setPickerGroup("all")}
                     style={{ flexShrink: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, background: isAll ? "#ffffff22" : "#0F1117", border: `1px solid ${isAll ? "#ffffff" : "#2A2D3E"}`, borderRadius: 20, padding: "6px 12px", fontSize: 12.5, fontWeight: 700, color: isAll ? "#fff" : "#888" }}
