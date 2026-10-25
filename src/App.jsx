@@ -686,25 +686,87 @@ const DEFAULT_PLAN = WORKOUTS.foundation.map((d) => ({
   exercises: d.exercises.map((ex) => ({ ...ex, libId: PLAN_TO_LIBRARY_ID[ex.name] || null })),
 }));
 
-// What a brand-new device starts with: the same Day A/B/C shape, no exercises.
+// Same Day A/B/C shape, no exercises — what's left if every exercise is removed.
 // The empty-plan UI then guides the user into edit mode to build their own.
 const EMPTY_PLAN = DEFAULT_PLAN.map((d) => ({ day: d.day, subtitle: d.subtitle, exercises: [] }));
+
+// The gym plan: beginner full-body A/B/C aimed at building strength + muscle while
+// losing fat. Every day covers push, pull and legs; machines and assisted versions
+// let a low starting strength still do proper sets. What a new device starts with.
+const gymSlot = (libId, note, sets, reps) => {
+  const e = BY_ID[libId];
+  return { name: e.name, sets: sets || e.defaultSets, reps: reps || e.defaultReps, note, icon: e.icon, libId };
+};
+const GYM_PLAN = [
+  {
+    day: "Day A",
+    subtitle: "Full body · machines",
+    exercises: [
+      gymSlot("splitsquat", "Bodyweight first, then hold dumbbells. Pick a weight you could do 2–3 more reps with."),
+      gymSlot("latpulldown", "The base of your pull-up. Pull to the upper chest, no swinging."),
+      gymSlot("machinechestpress", "Machines let you push hard safely while you build strength."),
+      gymSlot("seatedcablerow", "Squeeze the shoulder blades together at the end of every rep."),
+      gymSlot("hamstringcurl", "Backs of the legs — balances out all the squatting. Slow on the way back."),
+      gymSlot("plank", "Brace like someone's about to poke your stomach. Breathe steadily.", "3", "20–30s"),
+    ],
+  },
+  {
+    day: "Day B",
+    subtitle: "Full body · free weights",
+    exercises: [
+      gymSlot("gobletsquat", "Start with a light dumbbell and own the depth before adding weight."),
+      gymSlot("assistedpullup", "Log the assistance weight — lower it over the weeks. This is your road to a real pull-up."),
+      gymSlot("inclinedbpress", "Low incline (~30°). Upper chest and shoulders."),
+      gymSlot("romaniandeadlift", "Hinge at the hips, weights slide down your thighs. Hamstrings and glutes.", "3", "10–12"),
+      gymSlot("cablefacepull", "Light and controlled — keeps the shoulders healthy alongside all the pressing."),
+      gymSlot("tricepspushdown", "Arms finisher. Elbows pinned to your sides."),
+    ],
+  },
+  {
+    day: "Day C",
+    subtitle: "Full body · mixed",
+    exercises: [
+      gymSlot("backextension", "Squeeze the glutes to lift; don't arch past a straight line."),
+      gymSlot("chestsupportedrow", "Chest stays on the pad so your back does the work, not momentum."),
+      gymSlot("dbshoulderpress", "Start light. Ribs down, no big back arch."),
+      gymSlot("stepup", "Bodyweight first; hold dumbbells once 10 each side is solid."),
+      gymSlot("cablebicepcurl", "Arms finisher. No swinging — if you have to, it's too heavy."),
+      gymSlot("deadbug", "Slow and controlled — lower back stays pressed into the floor."),
+    ],
+  },
+];
+
+// Bump when a new curated plan should replace whatever's saved on the device.
+const PLAN_VERSION = "gym-2";
 
 function loadPlan() {
   try {
     const raw = localStorage.getItem("cal_plan");
-    if (raw) {
+    if (raw && localStorage.getItem("cal_plan_version") === PLAN_VERSION) {
       const p = JSON.parse(raw);
       if (Array.isArray(p) && p.length) return p;
     }
   } catch (e) {}
-  return JSON.parse(JSON.stringify(EMPTY_PLAN));
+  return JSON.parse(JSON.stringify(GYM_PLAN));
 }
+
+// Weight log: { [exerciseKey]: [{ date, sets: [{ kg, reps }] }] }, oldest first,
+// at most one entry per exercise per day.
+const logKeyFor = (ex) => libIdFor(ex) || ex.name;
+
+// Top of a rep range ("10–12" → 12, "8–10 each" → 10). Null for timed holds.
+function topOfRange(reps) {
+  if (!reps || /\d\s*s\b/.test(reps)) return null;
+  const nums = (reps.match(/\d+/g) || []).map(Number);
+  return nums.length ? Math.max(...nums) : null;
+}
+
+const formatSet = (s) => (s.kg != null ? `${s.kg}kg × ${s.reps ?? "–"}` : `${s.reps ?? "–"}`);
 
 const planIsEmpty = (plan) => plan.every((d) => d.exercises.length === 0);
 
 // Every localStorage key this app writes — used by the hidden factory reset.
-const CAL_STORAGE_KEYS = ["cal_plan", "cal_mastered", "cal_days", "cal_session_dates", "cal_equipment"];
+const CAL_STORAGE_KEYS = ["cal_plan", "cal_plan_version", "cal_mastered", "cal_days", "cal_session_dates", "cal_equipment", "cal_log"];
 
 // Slot counts per muscle group across Day A–C for a given plan.
 function weeklyGroupCounts(plan) {
@@ -721,7 +783,7 @@ function weeklyGroupCounts(plan) {
 // The recommended per-group weekly distribution the app guides toward — the
 // curated plan's own balance, so an uninformed user still knows how many of
 // each type to include even while choosing their own exercises.
-const RECOMMENDED_COUNTS = weeklyGroupCounts(DEFAULT_PLAN);
+const RECOMMENDED_COUNTS = weeklyGroupCounts(GYM_PLAN);
 
 // Exercise ids for everything in a completed day — used to grow "mastered" status.
 function exerciseIdsForDay(plan, dayIndex) {
@@ -737,6 +799,11 @@ export default function App() {
   // if earned before dates were tracked). Derived Set keeps the old read API.
   const [masteredDates, setMasteredDates] = useState(() => loadMap("cal_mastered", {}));
   const unlockedSkills = new Set(Object.keys(masteredDates));
+  // True on the first load after a new curated plan ships (see PLAN_VERSION).
+  const [migratingPlan] = useState(() => {
+    try { return localStorage.getItem("cal_plan_version") !== PLAN_VERSION; } catch (e) { return false; }
+  });
+  // Which days have ever been completed — starts fresh when the plan is replaced.
   const [completedDays, setCompletedDays] = useState(() => loadSet("cal_days", []));
   // Calendar dates (ISO, deduped) a session was completed on — powers the History tab.
   const [sessionDates, setSessionDates] = useState(() => loadSet("cal_session_dates", []));
@@ -748,6 +815,8 @@ export default function App() {
   const [dragIndex, setDragIndex] = useState(null); // slot being drag-reordered (edit mode)
   const cardRefs = useRef([]); // exercise card DOM nodes for the active day, for hit-testing
   const [ownedEquipment, setOwnedEquipment] = useState(() => loadSet("cal_equipment", ALL_EQUIPMENT_KEYS));
+  const [weightLog, setWeightLog] = useState(() => loadMap("cal_log", {}));
+  const [sessionSets, setSessionSets] = useState([]); // per session exercise: [{ kg, reps }] input strings
   const [equipmentOpen, setEquipmentOpen] = useState(false);
   const [expandedTrackGroup, setExpandedTrackGroup] = useState(null);
   const [sessionActive, setSessionActive] = useState(false);
@@ -774,6 +843,17 @@ export default function App() {
   useEffect(() => { saveSet("cal_session_dates", sessionDates); }, [sessionDates]);
   useEffect(() => { saveSet("cal_equipment", ownedEquipment); }, [ownedEquipment]);
   useEffect(() => { try { localStorage.setItem("cal_plan", JSON.stringify(plan)); } catch (e) {} }, [plan]);
+  useEffect(() => { saveMap("cal_log", weightLog); }, [weightLog]);
+
+  // One-time migration to the gym plan: loadPlan() already swapped the plan in;
+  // a gym has all the kit, so mark every piece of equipment as owned.
+  // Old completed-day ticks belonged to the old plan, so clear them.
+  useEffect(() => {
+    if (!migratingPlan) return;
+    try { localStorage.setItem("cal_plan_version", PLAN_VERSION); } catch (e) {}
+    setOwnedEquipment(new Set(ALL_EQUIPMENT_KEYS));
+    setCompletedDays(new Set());
+  }, []);
 
   // One-time migration: the Skill Tree used different exercise ids before the
   // unified library rebuild. Remap anything already mastered on this device.
@@ -809,6 +889,7 @@ export default function App() {
   // One-time backfill: a day you'd already marked complete is real evidence you can
   // do those exercises, even though dated mastery didn't exist yet (date unknown → null).
   useEffect(() => {
+    if (migratingPlan) return; // those completed days were for the old plan
     setMasteredDates((prev) => {
       const next = { ...prev };
       completedDays.forEach((key) => {
@@ -857,10 +938,53 @@ export default function App() {
     setInCooldown(false);
     setCooldownSeconds(120);
     setExerciseTimes([]);
+    setSessionSets(workout.exercises.map((ex) => (
+      Array.from({ length: parseInt(ex.sets, 10) || 3 }, () => ({ kg: "", reps: "" }))
+    )));
     setSessionActive(true);
   };
 
+  // Save the logged sets for one session exercise (replacing any entry from today).
+  const commitSets = (index) => {
+    const ex = workout.exercises[index];
+    const rows = sessionSets[index] || [];
+    const num = (v) => (v === "" || isNaN(Number(v)) ? null : Number(v));
+    const sets = rows
+      .map((r) => ({ kg: num(r.kg), reps: num(r.reps) }))
+      .filter((r) => r.kg !== null || r.reps !== null);
+    if (!ex || !sets.length) return;
+    const key = logKeyFor(ex);
+    const date = todayISO();
+    setWeightLog((prev) => {
+      const entries = (prev[key] || []).filter((e) => e.date !== date);
+      return { ...prev, [key]: [...entries, { date, sets }] };
+    });
+  };
+
+  const updateSet = (exIndex, setIndex, field, value) => {
+    setSessionSets((prev) => prev.map((rows, i) => (
+      i !== exIndex ? rows : rows.map((r, j) => (j === setIndex ? { ...r, [field]: value } : r))
+    )));
+  };
+
+  const addSetRow = (exIndex) => {
+    setSessionSets((prev) => prev.map((rows, i) => (i === exIndex ? [...rows, { kg: "", reps: "" }] : rows)));
+  };
+
+  // Fill this exercise's rows with what was logged last time.
+  const copyLastSets = (exIndex, last) => {
+    setSessionSets((prev) => prev.map((rows, i) => {
+      if (i !== exIndex) return rows;
+      const len = Math.max(rows.length, last.sets.length);
+      return Array.from({ length: len }, (_, j) => {
+        const s = last.sets[j] || last.sets[last.sets.length - 1];
+        return { kg: s.kg != null ? String(s.kg) : "", reps: s.reps != null ? String(s.reps) : "" };
+      });
+    }));
+  };
+
   const closeSession = () => {
+    if (sessionActive && !sessionFinished) commitSets(sessionExIndex);
     setSessionActive(false);
     setTimerRunning(false);
     setInCooldown(false);
@@ -869,6 +993,7 @@ export default function App() {
   };
 
   const goNextExercise = (exercises) => {
+    commitSets(sessionExIndex);
     const recorded = timerSeconds;
     setExerciseTimes((prev) => [...prev, recorded]);
     setTimerRunning(false);
@@ -1316,7 +1441,10 @@ export default function App() {
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5, fontWeight: 800, color: phase.color, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>
                 😴 Rest
               </div>
-              Take at least one day off between sessions. A–B–rest–C or Mon/Wed/Fri works well. Prioritise sleep and protein (aim for ~1.6–2g per kg of bodyweight).
+              Take at least one day off between sessions — Mon/Wed/Fri works well. For the first two weeks do 2 sets of
+              each exercise while you learn the movements. After that, progress one step at a time: once you hit the top of
+              the rep range on every set, add a small amount of weight. Fat loss comes mostly from food — a modest calorie
+              deficit, plenty of protein (~1.6–2g per kg of bodyweight) and good sleep.
             </div>
             )}
 
@@ -1873,11 +2001,82 @@ export default function App() {
                     )}
                   </div>
 
+                  {/* Set log — weight + reps per set, with last time's numbers to beat */}
+                  {(() => {
+                    const rows = sessionSets[sessionExIndex] || [];
+                    const assisted = BY_ID[libIdFor(ex)]?.assisted;
+                    const history = weightLog[logKeyFor(ex)] || [];
+                    const last = history.filter((e) => e.date !== todayISO()).slice(-1)[0];
+                    const top = topOfRange(ex.reps);
+                    const targetSets = parseInt(ex.sets, 10) || 3;
+                    const hitTop = last && top && last.sets.length >= targetSets && last.sets.every((st) => (st.reps || 0) >= top);
+                    const inputStyle = {
+                      width: "100%", minWidth: 0, boxSizing: "border-box", background: "#0F1117",
+                      border: "1px solid #2A2D3E", borderRadius: 8, padding: "9px 10px",
+                      fontSize: 16, color: "#E8E8E8", fontVariantNumeric: "tabular-nums",
+                    };
+                    const colLabel = { fontSize: 10.5, color: "#667", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 };
+                    return (
+                      <div style={{ background: "#161925", border: "1px solid #2A2D3E", borderRadius: 12, padding: "14px 16px" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 }}>
+                          <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase", color: "#889", fontWeight: 700 }}>Log sets</div>
+                          {last && (
+                            <button
+                              onClick={() => copyLastSets(sessionExIndex, last)}
+                              style={{ cursor: "pointer", background: "#252840", border: "none", borderRadius: 7, padding: "6px 10px", fontSize: 11.5, fontWeight: 700, color: "#cfcfe0" }}
+                            >Same as last time</button>
+                          )}
+                        </div>
+                        {last && (
+                          <div style={{ fontSize: 12, color: "#8a8fa3", marginBottom: 10, lineHeight: 1.5 }}>
+                            Last time ({formatDate(last.date)}): {last.sets.map(formatSet).join(", ")}
+                          </div>
+                        )}
+                        {hitTop && (
+                          <div style={{ fontSize: 12, color: "#5EC47A", background: "#1A3A2840", borderRadius: 8, padding: "8px 10px", marginBottom: 10, lineHeight: 1.5 }}>
+                            You hit {top} on every set last time — {assisted ? "take a little assistance off" : "go up a small step in weight"} today.
+                          </div>
+                        )}
+                        <div style={{ display: "grid", gridTemplateColumns: "48px 1fr 1fr", gap: 8, alignItems: "center" }}>
+                          <span />
+                          <span style={colLabel}>{assisted ? "Assist kg" : "kg"}</span>
+                          <span style={colLabel}>{top === null ? "Seconds" : "Reps"}</span>
+                          {rows.map((r, j) => (
+                            <div key={j} style={{ display: "contents" }}>
+                              <span style={{ fontSize: 12, color: "#8a8fa3", fontWeight: 700 }}>Set {j + 1}</span>
+                              <input
+                                type="text" inputMode="decimal" value={r.kg}
+                                placeholder={last?.sets[j]?.kg != null ? String(last.sets[j].kg) : "–"}
+                                onChange={(e) => updateSet(sessionExIndex, j, "kg", e.target.value)}
+                                style={inputStyle}
+                              />
+                              <input
+                                type="text" inputMode="numeric" value={r.reps}
+                                placeholder={last?.sets[j]?.reps != null ? String(last.sets[j].reps) : "–"}
+                                onChange={(e) => updateSet(sessionExIndex, j, "reps", e.target.value)}
+                                style={inputStyle}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10, gap: 8 }}>
+                          <span style={{ fontSize: 11, color: "#667", lineHeight: 1.4 }}>
+                            {assisted ? "Less assistance = harder." : "Leave kg blank for bodyweight."}
+                          </span>
+                          <button
+                            onClick={() => addSetRow(sessionExIndex)}
+                            style={{ cursor: "pointer", background: "transparent", border: "1px solid #2A2D3E", borderRadius: 7, padding: "6px 10px", fontSize: 11.5, fontWeight: 700, color: "#8a8fb0", flexShrink: 0 }}
+                          >+ Set</button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {/* Nav buttons */}
                   <div style={{ display: "flex", gap: 10 }}>
                     {sessionExIndex > 0 && (
                       <button
-                        onClick={() => setSessionExIndex((i) => i - 1)}
+                        onClick={() => { commitSets(sessionExIndex); setSessionExIndex((i) => i - 1); }}
                         style={{
                           flex: 1, background: "#1A1D2E", border: "1px solid #2A2D3E", borderRadius: 10,
                           padding: "13px", fontSize: 14, fontWeight: 700, color: "#AAB",
@@ -2102,6 +2301,25 @@ export default function App() {
                   <div style={{ fontSize: 13, color: "#AAB", lineHeight: 1.5 }}>{ex.note}</div>
                 </div>
                 )}
+
+                {/* Weight log history — most recent first */}
+                {(() => {
+                  const history = (weightLog[logKeyFor(ex)] || []).slice(-5).reverse();
+                  if (!history.length) return null;
+                  return (
+                    <div style={{ background: "#1A1D2E", border: "1px solid #2A2D3E", borderRadius: 8, padding: "12px 14px", marginBottom: 20 }}>
+                      <div style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: phase.color, fontWeight: 700, marginBottom: 8 }}>Your log</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {history.map((h) => (
+                          <div key={h.date} style={{ display: "flex", gap: 10, fontSize: 12.5, lineHeight: 1.4 }}>
+                            <span style={{ color: "#8a8fa3", fontWeight: 700, width: 52, flexShrink: 0 }}>{formatDate(h.date)}</span>
+                            <span style={{ color: "#CCD", fontVariantNumeric: "tabular-nums" }}>{h.sets.map(formatSet).join(", ")}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Mastery status (Skill Tree exercises) */}
                 {ex.masteredOn !== undefined && (

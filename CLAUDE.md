@@ -4,10 +4,10 @@ Project context for Claude Code. Loaded at the start of every session.
 
 ## What this is
 
-A personal calisthenics training web app ("Lever"). Single-page React app,
-built with Vite, deployed to GitHub Pages. It's a user-editable 3-day-a-week workout
-plan (empty until built, via a curated exercise library) plus a skill-progression
-tracker, with progress saved per-device in the browser.
+A personal training web app ("Lever"). Single-page React app, built with Vite,
+deployed to GitHub Pages. It's a user-editable 3-day-a-week gym workout plan (preloaded
+with `GYM_PLAN`, editable from a curated exercise library) with per-set weight logging,
+plus a skill-progression tracker, with progress saved per-device in the browser.
 
 This is a personal project for one user, not a product. Favour simplicity and
 readability over abstraction. Default to no new dependencies, frameworks, state
@@ -46,13 +46,16 @@ Key data structures and helpers, all near the top of `src/App.jsx`:
 
 - `WORKOUTS` — the original curated Foundation/Build/Skills phase plan (kept as
   reference data; see `DEFAULT_PLAN` below).
-- `DEFAULT_PLAN` — `WORKOUTS.foundation` reshaped into the 3-day (A/B/C) plan shape,
-  used as the recommended muscle-group balance (`RECOMMENDED_COUNTS`) that guides
-  editing. Not what new users see (see `EMPTY_PLAN`).
-- `EMPTY_PLAN` — same Day A/B/C shape as `DEFAULT_PLAN` but with no exercises. This
-  is what a brand-new device starts with; `loadPlan()` falls back to it when
-  `localStorage.cal_plan` is empty, and the empty-plan UI nudges the user into edit
-  mode to build their own plan from the exercise library.
+- `DEFAULT_PLAN` — `WORKOUTS.foundation` reshaped into the 3-day (A/B/C) plan shape.
+  Old reference data, no longer shown.
+- `GYM_PLAN` — the current curated beginner full-body A/B/C gym plan, and what a new
+  device starts with. `loadPlan()` falls back to it when `cal_plan` is empty or
+  `cal_plan_version` doesn't match `PLAN_VERSION`. Bumping `PLAN_VERSION` replaces the
+  saved plan on every device on next load (and marks all equipment owned, clears
+  `cal_days`). Its balance is also `RECOMMENDED_COUNTS`, the muscle-coverage guide
+  shown while editing.
+- `EMPTY_PLAN` — same Day A/B/C shape with no exercises (the empty-plan UI shows if
+  the user removes everything).
 - The user's actual plan is `plan` (React state, persisted to `cal_plan`), editable
   in place via "Edit plan" mode — swap/add/remove/reorder exercises per day, drawing
   from `src/data/exerciseLibrary.js`.
@@ -75,7 +78,11 @@ modal. Progress persists to `localStorage`: `cal_plan` (the user's plan),
 `cal_mastered` (id → date mastered), `cal_days` (which of Day A/B/C have ever been
 completed), `cal_session_dates` (calendar dates a session was completed — powers
 History), `cal_equipment` (owned equipment, used to grey out exercises you can't
-do). Holding the "Lever." logo for 5s triggers a hidden factory-reset confirm that
+do), `cal_log` (weight log: exercise id → `[{ date, sets: [{ kg, reps }] }]`, one entry
+per exercise per day, written when you leave an exercise in the session runner),
+`cal_plan_version`. The session runner shows last time's sets and suggests adding
+weight once every set hit the top of the rep range (`assisted: true` exercises log
+assistance, so less = harder). Holding the "Lever." logo for 5s triggers a hidden factory-reset confirm that
 clears all of the above and reloads — the escape hatch back to a brand-new install.
 
 ## Conventions / gotchas
@@ -94,12 +101,18 @@ clears all of the above and reloads — the escape hatch back to a brand-new ins
 This shapes any change to exercises, sets/reps, or progressions. If asked to modify
 the plan, respect these unless the user says otherwise:
 
-- Assume user is a beginner. Sessions are 30–45 min,
-  3x/week. Cardio is handled separately, so leave it out unless asked.
-- Goals, in priority order: unlocking skills (handstand, muscle-up, L-sit, etc.) and
-  building muscle / body shape. Raw strength and lifting heavier are lower priority.
-- The plan favours calisthenics and simple movements (push-ups, dips, rings, etc.) —
-  the kind of training the user actually enjoys and will stick with.
+- The user is a beginner with very low starting strength who has joined a gym with
+  full equipment (machines, cables, dumbbells, bars, rings). Sessions are 30–45 min,
+  3x/week, full body. Cardio is handled separately, so leave it out unless asked.
+- Current goals (as of Oct 2026): build strength and muscle and lose stomach fat
+  (~1 stone overweight) until happy with body shape. Calisthenics skills (handstand,
+  muscle-up, L-sit) come after that; assisted pull-ups/dips in the plan bridge to them.
+- Plan structure: fill movement patterns (vertical/horizontal push and pull, squat,
+  hinge, plus core), one exercise per slot, progressed with small weight increases
+  once the top of the rep range is hit on every set. Machines and assisted versions are
+  preferred while strength is low.
+- The user still enjoys calisthenics-style training, so lean that way where it
+  doesn't conflict with the goals above.
 
 ## Health-advice guardrail
 
