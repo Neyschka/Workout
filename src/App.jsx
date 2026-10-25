@@ -761,7 +761,18 @@ function topOfRange(reps) {
   return nums.length ? Math.max(...nums) : null;
 }
 
-const formatSet = (s) => (s.kg != null ? `${s.kg}kg × ${s.reps ?? "–"}` : `${s.reps ?? "–"}`);
+// Rest between sets: 90s for the main lifts, 60s for core and 2-set accessories.
+function restSecondsFor(ex) {
+  const lib = BY_ID[libIdFor(ex)];
+  if (lib?.group === "core" || (parseInt(ex.sets, 10) || 3) <= 2) return 60;
+  return 90;
+}
+
+// One logged set as text. `timed` adds "s" for holds like the plank.
+function formatSet(s, timed) {
+  const reps = s.reps == null ? "–" : `${s.reps}${timed ? "s" : ""}`;
+  return s.kg != null ? `${s.kg}kg × ${reps}` : reps;
+}
 
 const planIsEmpty = (plan) => plan.every((d) => d.exercises.length === 0);
 
@@ -816,19 +827,20 @@ export default function App() {
   const cardRefs = useRef([]); // exercise card DOM nodes for the active day, for hit-testing
   const [ownedEquipment, setOwnedEquipment] = useState(() => loadSet("cal_equipment", ALL_EQUIPMENT_KEYS));
   const [weightLog, setWeightLog] = useState(() => loadMap("cal_log", {}));
-  const [sessionSets, setSessionSets] = useState([]); // per session exercise: [{ kg, reps }] input strings
+  const [sessionSets, setSessionSets] = useState([]); // per session exercise: [{ kg, reps, done }] (kg/reps as input strings)
   const [equipmentOpen, setEquipmentOpen] = useState(false);
   const [expandedTrackGroup, setExpandedTrackGroup] = useState(null);
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionExIndex, setSessionExIndex] = useState(0);
   const [sessionFinished, setSessionFinished] = useState(false);
-  const [timerSeconds, setTimerSeconds] = useState(0);
-  const [timerRunning, setTimerRunning] = useState(false);
-  const [inCooldown, setInCooldown] = useState(false);
-  const [cooldownSeconds, setCooldownSeconds] = useState(120);
-  const [exerciseTimes, setExerciseTimes] = useState([]);
-  const timerRef = useRef(null);
-  const cooldownRef = useRef(null);
+  // Session timing is all timestamps (ms), so it stays right even if the phone
+  // sleeps and the tick interval pauses. `nowMs` is just the re-render tick.
+  const [sessionStartMs, setSessionStartMs] = useState(null);
+  const [sessionEndMs, setSessionEndMs] = useState(null);
+  const [restEndsAt, setRestEndsAt] = useState(null);  // rest countdown target, or null
+  const [holdStartMs, setHoldStartMs] = useState(null); // timed-hold stopwatch start, or null
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [historyDay, setHistoryDay] = useState(null); // ISO date tapped in the History calendar
   const factoryResetTimerRef = useRef(null);
   const headerRef = useRef(null);        // sticky header, for scroll offset
   const trackRefs = useRef({});          // Skills-tab track cards, keyed by group id
@@ -900,120 +912,130 @@ export default function App() {
     });
   }, []);
 
+  // Re-render tick while a session is running (drives the clock + rest countdown).
   useEffect(() => {
-    if (timerRunning) {
-      timerRef.current = setInterval(() => setTimerSeconds((s) => s + 1), 1000);
-    } else {
-      clearInterval(timerRef.current);
-    }
-    return () => clearInterval(timerRef.current);
-  }, [timerRunning]);
+    if (!sessionActive || sessionFinished) return;
+    const id = setInterval(() => setNowMs(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [sessionActive, sessionFinished]);
 
+  // Rest over: clear it (and buzz, on phones that allow it — not iPhone).
   useEffect(() => {
-    if (inCooldown) {
-      cooldownRef.current = setInterval(() => {
-        setCooldownSeconds((s) => {
-          if (s <= 1) {
-            clearInterval(cooldownRef.current);
-            setInCooldown(false);
-            setCooldownSeconds(120);
-            setTimerSeconds(0);
-            setTimerRunning(true);
-            return 120;
-          }
-          return s - 1;
-        });
-      }, 1000);
-    } else {
-      clearInterval(cooldownRef.current);
+    if (restEndsAt && nowMs >= restEndsAt) {
+      setRestEndsAt(null);
+      try { navigator.vibrate?.([200, 100, 200]); } catch (e) {}
     }
-    return () => clearInterval(cooldownRef.current);
-  }, [inCooldown]);
+  }, [nowMs, restEndsAt]);
 
+  const startRest = (seconds) => {
+    setRestEndsAt(Date.now() + seconds * 1000);
+    setNowMs(Date.now());
+  };
+  const adjustRest = (delta) => {
+    if (!restEndsAt) return;
+    const remaining = (restEndsAt - Date.now()) / 1000 + delta;
+    if (remaining <= 0) { skipRest(); return; }
+    startRest(remaining);
+  };
+  const skipRest = () => setRestEndsAt(null);
+
+  // Rows start prefilled with last time's numbers, all un-ticked.
   const startSession = () => {
     setSessionExIndex(0);
     setSessionFinished(false);
-    setTimerSeconds(0);
-    setTimerRunning(true);
-    setInCooldown(false);
-    setCooldownSeconds(120);
-    setExerciseTimes([]);
-    setSessionSets(workout.exercises.map((ex) => (
-      Array.from({ length: parseInt(ex.sets, 10) || 3 }, () => ({ kg: "", reps: "" }))
-    )));
+    setSessionStartMs(Date.now());
+    setSessionEndMs(null);
+    setNowMs(Date.now());
+    setRestEndsAt(null);
+    setHoldStartMs(null);
+    setSessionSets(workout.exercises.map((ex) => {
+      const last = lastLogEntry(ex);
+      const count = Math.max(parseInt(ex.sets, 10) || 3, last ? last.sets.length : 0);
+      return Array.from({ length: count }, (_, j) => {
+        const s = last ? (last.sets[j] || last.sets[last.sets.length - 1]) : null;
+        return {
+          kg: s?.kg != null ? String(s.kg) : "",
+          reps: s?.reps != null ? String(s.reps) : "",
+          done: false,
+        };
+      });
+    }));
     setSessionActive(true);
   };
 
-  // Save the logged sets for one session exercise (replacing any entry from today).
-  const commitSets = (index) => {
-    const ex = workout.exercises[index];
-    const rows = sessionSets[index] || [];
+  // Most recent logged entry for an exercise before today.
+  const lastLogEntry = (ex) => (weightLog[logKeyFor(ex)] || []).filter((e) => e.date !== todayISO()).slice(-1)[0];
+
+  // Save one exercise's ticked sets as today's log entry (removed if none are ticked).
+  const saveLog = (ex, rows) => {
     const num = (v) => (v === "" || isNaN(Number(v)) ? null : Number(v));
-    const sets = rows
-      .map((r) => ({ kg: num(r.kg), reps: num(r.reps) }))
-      .filter((r) => r.kg !== null || r.reps !== null);
-    if (!ex || !sets.length) return;
+    const sets = rows.filter((r) => r.done).map((r) => ({ kg: num(r.kg), reps: num(r.reps) }));
     const key = logKeyFor(ex);
     const date = todayISO();
     setWeightLog((prev) => {
       const entries = (prev[key] || []).filter((e) => e.date !== date);
-      return { ...prev, [key]: [...entries, { date, sets }] };
+      const next = sets.length ? [...entries, { date, sets }] : entries;
+      return { ...prev, [key]: next };
     });
   };
 
+  // Every set change goes through here so the log always matches the ticked rows.
+  const changeRows = (exIndex, fn) => {
+    const rows = fn(sessionSets[exIndex] || []);
+    setSessionSets((prev) => prev.map((r, i) => (i === exIndex ? rows : r)));
+    saveLog(workout.exercises[exIndex], rows);
+  };
+
   const updateSet = (exIndex, setIndex, field, value) => {
-    setSessionSets((prev) => prev.map((rows, i) => (
-      i !== exIndex ? rows : rows.map((r, j) => (j === setIndex ? { ...r, [field]: value } : r))
-    )));
+    changeRows(exIndex, (rows) => rows.map((r, j) => (j === setIndex ? { ...r, [field]: value } : r)));
+  };
+
+  // Ticking a set saves it and starts the rest countdown; un-ticking removes it.
+  const toggleSetDone = (exIndex, setIndex) => {
+    const ex = workout.exercises[exIndex];
+    const wasDone = sessionSets[exIndex]?.[setIndex]?.done;
+    changeRows(exIndex, (rows) => rows.map((r, j) => (j === setIndex ? { ...r, done: !r.done } : r)));
+    if (!wasDone) startRest(restSecondsFor(ex));
   };
 
   const addSetRow = (exIndex) => {
-    setSessionSets((prev) => prev.map((rows, i) => (i === exIndex ? [...rows, { kg: "", reps: "" }] : rows)));
+    changeRows(exIndex, (rows) => {
+      const prev = rows[rows.length - 1];
+      return [...rows, { kg: prev ? prev.kg : "", reps: prev ? prev.reps : "", done: false }];
+    });
   };
 
-  // Fill this exercise's rows with what was logged last time.
-  const copyLastSets = (exIndex, last) => {
-    setSessionSets((prev) => prev.map((rows, i) => {
-      if (i !== exIndex) return rows;
-      const len = Math.max(rows.length, last.sets.length);
-      return Array.from({ length: len }, (_, j) => {
-        const s = last.sets[j] || last.sets[last.sets.length - 1];
-        return { kg: s.kg != null ? String(s.kg) : "", reps: s.reps != null ? String(s.reps) : "" };
-      });
-    }));
+  // Timed holds: stop the stopwatch → its seconds fill the next un-ticked set, ticked.
+  const stopHold = (exIndex) => {
+    if (!holdStartMs) return;
+    const secs = Math.round((Date.now() - holdStartMs) / 1000);
+    setHoldStartMs(null);
+    const rows = sessionSets[exIndex] || [];
+    let idx = rows.findIndex((r) => !r.done);
+    if (idx === -1) idx = rows.length;
+    changeRows(exIndex, (rs) => {
+      const next = idx < rs.length ? rs : [...rs, { kg: "", reps: "", done: false }];
+      return next.map((r, j) => (j === idx ? { ...r, reps: String(secs), done: true } : r));
+    });
+    startRest(restSecondsFor(workout.exercises[exIndex]));
   };
 
   const closeSession = () => {
-    if (sessionActive && !sessionFinished) commitSets(sessionExIndex);
     setSessionActive(false);
-    setTimerRunning(false);
-    setInCooldown(false);
-    setTimerSeconds(0);
-    setCooldownSeconds(120);
+    setRestEndsAt(null);
+    setHoldStartMs(null);
   };
 
   const goNextExercise = (exercises) => {
-    commitSets(sessionExIndex);
-    const recorded = timerSeconds;
-    setExerciseTimes((prev) => [...prev, recorded]);
-    setTimerRunning(false);
-    setTimerSeconds(0);
+    setHoldStartMs(null);
     if (sessionExIndex === exercises.length - 1) {
       setSessionFinished(true);
+      setSessionEndMs(Date.now());
+      setRestEndsAt(null);
       recordSessionCompletion();
     } else {
-      setInCooldown(true);
-      setCooldownSeconds(120);
       setSessionExIndex((i) => i + 1);
     }
-  };
-
-  const skipCooldown = () => {
-    clearInterval(cooldownRef.current);
-    setInCooldown(false);
-    setCooldownSeconds(120);
-    setTimerSeconds(0);
-    setTimerRunning(true);
   };
 
   const formatTime = (s) => {
@@ -1047,10 +1069,12 @@ export default function App() {
   const now = new Date();
   const isCurrentHistoryMonth = historyMonth.year === now.getFullYear() && historyMonth.month === now.getMonth();
   const goHistoryPrevMonth = () => {
+    setHistoryDay(null);
     setHistoryMonth(({ year, month }) => (month === 0 ? { year: year - 1, month: 11 } : { year, month: month - 1 }));
   };
   const goHistoryNextMonth = () => {
     if (isCurrentHistoryMonth) return;
+    setHistoryDay(null);
     setHistoryMonth(({ year, month }) => (month === 11 ? { year: year + 1, month: 0 } : { year, month: month + 1 }));
   };
 
@@ -1617,10 +1641,16 @@ export default function App() {
           const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
           const monthLabel = new Date(historyMonth.year, historyMonth.month, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
           const todayIso = isoDate(now.getFullYear(), now.getMonth(), now.getDate());
+          // Everything logged per date: { iso: [{ key, sets }] }, in plan-ish (insertion) order.
+          const logsByDate = {};
+          Object.entries(weightLog).forEach(([key, entries]) => {
+            entries.forEach((e) => { (logsByDate[e.date] ||= []).push({ key, sets: e.sets }); });
+          });
+          const dayLogs = historyDay ? logsByDate[historyDay] || [] : [];
           return (
             <div>
               <p style={{ fontSize: 13, color: "#778", marginBottom: 18, lineHeight: 1.6 }}>
-                Every day you complete a workout session turns green here.
+                Every day you train turns green here. Tap a day to see what you lifted.
               </p>
 
               {/* Month header + navigation */}
@@ -1657,28 +1687,60 @@ export default function App() {
                   <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
                     {week.map((iso, di) => {
                       if (iso === null) return <div key={di} />;
-                      const done = sessionDates.has(iso);
+                      const done = sessionDates.has(iso) || !!logsByDate[iso];
                       const isToday = iso === todayIso;
+                      const selected = iso === historyDay;
                       const day = parseInt(iso.slice(-2), 10);
                       return (
-                        <div
+                        <button
                           key={di}
+                          onClick={() => setHistoryDay(selected ? null : iso)}
+                          disabled={!done}
                           style={{
-                            aspectRatio: "1", borderRadius: 10,
+                            aspectRatio: "1", borderRadius: 10, padding: 0, width: "100%",
+                            cursor: done ? "pointer" : "default",
                             display: "flex", alignItems: "center", justifyContent: "center",
                             background: done ? "#5EC47A" : "#1A1D2E",
-                            border: isToday ? `2px solid ${phase.color}` : `1px solid ${done ? "#5EC47A" : "#2A2D3E"}`,
+                            border: selected ? "2px solid #fff" : isToday ? `2px solid ${phase.color}` : `1px solid ${done ? "#5EC47A" : "#2A2D3E"}`,
+                            boxShadow: selected ? "0 0 0 2px #5EC47A" : "none",
                             fontSize: 14, fontWeight: 700,
                             color: done ? "#0F1117" : "#8a8fa3",
                           }}
                         >
                           {day}
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
                 ))}
               </div>
+
+              {/* What was logged on the tapped day */}
+              {historyDay && (
+                <div style={{ background: "#161925", border: "1px solid #2A2D3E", borderRadius: 12, padding: "14px 16px", marginTop: 18 }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 10 }}>
+                    {new Date(historyDay + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}
+                  </div>
+                  {dayLogs.length === 0 ? (
+                    <div style={{ fontSize: 12.5, color: "#778" }}>Session completed — no sets were logged.</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {dayLogs.map(({ key, sets }) => {
+                        const lib = BY_ID[key];
+                        return (
+                          <div key={key} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                            <span style={{ fontSize: 16, width: 22, textAlign: "center", flexShrink: 0 }}>{lib?.icon || "•"}</span>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: "#CCD" }}>{lib?.name || key}</div>
+                              <div style={{ fontSize: 12, color: "#8a8fa3", fontVariantNumeric: "tabular-nums", marginTop: 2 }}>{sets.map((st) => formatSet(st, lib && topOfRange(lib.defaultReps) === null)).join(", ")}</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })()}
@@ -1873,12 +1935,12 @@ export default function App() {
             paddingTop: "env(safe-area-inset-top, 0px)",
             paddingBottom: "env(safe-area-inset-bottom, 0px)",
           }}>
-            {/* Session header */}
+            {/* Session header — day, progress, and the whole-session clock */}
             <div style={{
               background: "#161925",
               borderBottom: "1px solid #2A2D3E",
-              padding: "16px 20px",
-              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "14px 20px",
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
             }}>
               <div>
                 <div style={{ fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: phase.color, fontWeight: 600 }}>
@@ -1888,39 +1950,50 @@ export default function App() {
                   {sessionFinished ? "Session complete" : `Exercise ${sessionExIndex + 1} of ${exercises.length}`}
                 </div>
               </div>
-              <button
-                onClick={closeSession}
-                style={{ background: "none", border: "none", color: "#667", fontSize: 22, cursor: "pointer", lineHeight: 1 }}
-              >×</button>
+              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                {!sessionFinished && sessionStartMs && (
+                  <span style={{ fontSize: 17, fontWeight: 800, color: "#CCD", fontVariantNumeric: "tabular-nums" }}>
+                    {formatTime(Math.max(0, Math.floor((nowMs - sessionStartMs) / 1000)))}
+                  </span>
+                )}
+                <button
+                  onClick={closeSession}
+                  style={{ background: "none", border: "none", color: "#667", fontSize: 22, cursor: "pointer", lineHeight: 1 }}
+                >×</button>
+              </div>
             </div>
 
             {sessionFinished ? (
-              /* Success screen */
+              /* Success screen — what got logged, plus total time */
               <div style={{ flex: 1, overflowY: "auto", padding: "32px 24px", display: "flex", flexDirection: "column", alignItems: "center" }}>
                 <div style={{ fontSize: 64, marginBottom: 16 }}>🎉</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: "#5EC47A", marginBottom: 8 }}>Session Complete!</div>
                 <div style={{ fontSize: 14, color: "#AAB", lineHeight: 1.7, marginBottom: 28, textAlign: "center" }}>
-                  Great work. You finished all {exercises.length} exercises for {workout.day}.
+                  Great work. That's {workout.day} done.
                 </div>
 
-                {/* Per-exercise times */}
                 <div style={{ width: "100%", maxWidth: 400, marginBottom: 12 }}>
-                  {exercises.map((ex, i) => (
-                    <div key={i} style={{
-                      display: "flex", alignItems: "center", justifyContent: "space-between",
-                      padding: "10px 14px",
-                      background: i % 2 === 0 ? "#161925" : "#1A1D2E",
-                      borderRadius: i === 0 ? "8px 8px 0 0" : i === exercises.length - 1 ? "0 0 8px 8px" : 0,
-                    }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 16 }}>{ex.icon}</span>
-                        <span style={{ fontSize: 13, color: "#CCD" }}>{ex.name}</span>
+                  {exercises.map((ex, i) => {
+                    const done = (sessionSets[i] || []).filter((r) => r.done);
+                    return (
+                      <div key={i} style={{
+                        display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10,
+                        padding: "10px 14px",
+                        background: i % 2 === 0 ? "#161925" : "#1A1D2E",
+                        borderRadius: i === 0 ? "8px 8px 0 0" : i === exercises.length - 1 ? "0 0 8px 8px" : 0,
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                          <span style={{ fontSize: 16 }}>{ex.icon}</span>
+                          <span style={{ fontSize: 13, color: "#CCD" }}>{ex.name}</span>
+                        </div>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: done.length ? phase.color : "#556", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                          {done.length
+                            ? done.map((r) => formatSet({ kg: r.kg === "" ? null : r.kg, reps: r.reps === "" ? null : r.reps }, topOfRange(ex.reps) === null)).join(", ")
+                            : "—"}
+                        </span>
                       </div>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: phase.color, fontVariantNumeric: "tabular-nums" }}>
-                        {exerciseTimes[i] !== undefined ? formatTime(exerciseTimes[i]) : "—"}
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {/* Total */}
                   <div style={{
                     display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -1930,7 +2003,7 @@ export default function App() {
                   }}>
                     <span style={{ fontSize: 13, fontWeight: 700, color: "#AAB" }}>Total time</span>
                     <span style={{ fontSize: 15, fontWeight: 800, color: "#E8E8E8", fontVariantNumeric: "tabular-nums" }}>
-                      {formatTime(exerciseTimes.reduce((a, b) => a + b, 0))}
+                      {formatTime(Math.max(0, Math.floor(((sessionEndMs || nowMs) - (sessionStartMs || nowMs)) / 1000)))}
                     </span>
                   </div>
                 </div>
@@ -1949,87 +2022,36 @@ export default function App() {
             ) : (() => {
               const d = getDetails(ex.name, BY_ID[libIdFor(ex)]);
               return (
+                <>
                 <div style={{ flex: 1, overflowY: "auto", padding: "20px", display: "flex", flexDirection: "column", gap: 16 }}>
-                  {/* Timer / Cooldown */}
-                  <div style={{ background: "#161925", border: `1px solid ${inCooldown ? "#E0884A44" : "#2A2D3E"}`, borderRadius: 12, padding: "18px 20px", textAlign: "center", minHeight: 148, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-                    {inCooldown ? (
-                      <>
-                        <div style={{ fontSize: 48, fontWeight: 800, fontVariantNumeric: "tabular-nums", letterSpacing: 2, color: "#E0884A" }}>
-                          {formatTime(cooldownSeconds)}
-                        </div>
-                        <button
-                          onClick={skipCooldown}
-                          style={{
-                            marginTop: 14, background: "none", border: "1px solid #E0884A",
-                            borderRadius: 8, padding: "10px 24px", fontSize: 13, fontWeight: 700,
-                            color: "#E0884A", cursor: "pointer",
-                          }}
-                        >
-                          Skip Cooldown →
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <div style={{ fontSize: 48, fontWeight: 800, fontVariantNumeric: "tabular-nums", letterSpacing: 2, color: timerRunning ? phase.color : "#E8E8E8" }}>
-                          {formatTime(timerSeconds)}
-                        </div>
-                        <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 14 }}>
-                          <button
-                            onClick={() => setTimerRunning((r) => !r)}
-                            style={{
-                              background: timerRunning ? "#2A1D1D" : "#1A3A28",
-                              border: `1px solid ${timerRunning ? "#C45E5E" : "#5EC47A"}`,
-                              borderRadius: 8, padding: "10px 24px",
-                              fontSize: 13, fontWeight: 700,
-                              color: timerRunning ? "#C45E5E" : "#5EC47A",
-                              cursor: "pointer",
-                            }}
-                          >
-                            {timerRunning ? "⏸ Pause" : "▶ Play"}
-                          </button>
-                          <button
-                            onClick={() => { setTimerSeconds(0); setTimerRunning(false); }}
-                            style={{
-                              background: "none", border: "1px solid #2A2D3E", borderRadius: 8,
-                              padding: "10px 20px", fontSize: 13, fontWeight: 600, color: "#667", cursor: "pointer",
-                            }}
-                          >
-                            ↺ Reset
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Set log — weight + reps per set, with last time's numbers to beat */}
+                  {/* Set log — rows prefilled from last time; tick a set when it's done */}
                   {(() => {
                     const rows = sessionSets[sessionExIndex] || [];
                     const assisted = BY_ID[libIdFor(ex)]?.assisted;
-                    const history = weightLog[logKeyFor(ex)] || [];
-                    const last = history.filter((e) => e.date !== todayISO()).slice(-1)[0];
+                    const last = lastLogEntry(ex);
                     const top = topOfRange(ex.reps);
+                    const timed = top === null;
                     const targetSets = parseInt(ex.sets, 10) || 3;
                     const hitTop = last && top && last.sets.length >= targetSets && last.sets.every((st) => (st.reps || 0) >= top);
-                    const inputStyle = {
-                      width: "100%", minWidth: 0, boxSizing: "border-box", background: "#0F1117",
-                      border: "1px solid #2A2D3E", borderRadius: 8, padding: "9px 10px",
-                      fontSize: 16, color: "#E8E8E8", fontVariantNumeric: "tabular-nums",
-                    };
+                    const inputStyle = (done) => ({
+                      width: "100%", minWidth: 0, boxSizing: "border-box",
+                      background: done ? "#1A3A2855" : "#0F1117",
+                      border: `1px solid ${done ? "#2E5A3A" : "#2A2D3E"}`, borderRadius: 8, padding: "9px 10px",
+                      fontSize: 16, color: done ? "#AEE0BC" : "#E8E8E8", fontVariantNumeric: "tabular-nums",
+                    });
                     const colLabel = { fontSize: 10.5, color: "#667", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 };
                     return (
-                      <div style={{ background: "#161925", border: "1px solid #2A2D3E", borderRadius: 12, padding: "14px 16px" }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 }}>
-                          <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase", color: "#889", fontWeight: 700 }}>Log sets</div>
-                          {last && (
-                            <button
-                              onClick={() => copyLastSets(sessionExIndex, last)}
-                              style={{ cursor: "pointer", background: "#252840", border: "none", borderRadius: 7, padding: "6px 10px", fontSize: 11.5, fontWeight: 700, color: "#cfcfe0" }}
-                            >Same as last time</button>
-                          )}
+                      <div style={{ background: "#161925", border: "1px solid #2A2D3E", borderRadius: 12, padding: "16px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                          <span style={{ fontSize: 26 }}>{ex.icon}</span>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 17, fontWeight: 800, color: phase.color, lineHeight: 1.2 }}>{ex.name}</div>
+                            <div style={{ fontSize: 12, color: "#8a8fa3", marginTop: 3 }}>Target: {ex.sets} × {ex.reps}</div>
+                          </div>
                         </div>
                         {last && (
                           <div style={{ fontSize: 12, color: "#8a8fa3", marginBottom: 10, lineHeight: 1.5 }}>
-                            Last time ({formatDate(last.date)}): {last.sets.map(formatSet).join(", ")}
+                            Last time ({formatDate(last.date)}): {last.sets.map((st) => formatSet(st, timed)).join(", ")}
                           </div>
                         )}
                         {hitTop && (
@@ -2037,31 +2059,57 @@ export default function App() {
                             You hit {top} on every set last time — {assisted ? "take a little assistance off" : "go up a small step in weight"} today.
                           </div>
                         )}
-                        <div style={{ display: "grid", gridTemplateColumns: "48px 1fr 1fr", gap: 8, alignItems: "center" }}>
+                        {timed && (
+                          <button
+                            onClick={() => (holdStartMs ? stopHold(sessionExIndex) : setHoldStartMs(Date.now()))}
+                            style={{
+                              width: "100%", cursor: "pointer", marginBottom: 12,
+                              background: holdStartMs ? "#2A1D1D" : "#1A3A28",
+                              border: `1px solid ${holdStartMs ? "#C45E5E" : "#5EC47A"}`, borderRadius: 10,
+                              padding: "12px", fontSize: 15, fontWeight: 800,
+                              color: holdStartMs ? "#E08A8A" : "#5EC47A", fontVariantNumeric: "tabular-nums",
+                            }}
+                          >
+                            {holdStartMs
+                              ? `■ Stop hold · ${formatTime(Math.max(0, Math.floor((nowMs - holdStartMs) / 1000)))}`
+                              : "▶ Start hold timer"}
+                          </button>
+                        )}
+                        <div style={{ display: "grid", gridTemplateColumns: "44px 1fr 1fr 46px", gap: 8, alignItems: "center" }}>
                           <span />
                           <span style={colLabel}>{assisted ? "Assist kg" : "kg"}</span>
-                          <span style={colLabel}>{top === null ? "Seconds" : "Reps"}</span>
+                          <span style={colLabel}>{timed ? "Seconds" : "Reps"}</span>
+                          <span />
                           {rows.map((r, j) => (
                             <div key={j} style={{ display: "contents" }}>
-                              <span style={{ fontSize: 12, color: "#8a8fa3", fontWeight: 700 }}>Set {j + 1}</span>
+                              <span style={{ fontSize: 12, color: r.done ? "#5EC47A" : "#8a8fa3", fontWeight: 700 }}>Set {j + 1}</span>
                               <input
-                                type="text" inputMode="decimal" value={r.kg}
-                                placeholder={last?.sets[j]?.kg != null ? String(last.sets[j].kg) : "–"}
+                                type="text" inputMode="decimal" value={r.kg} placeholder="–"
                                 onChange={(e) => updateSet(sessionExIndex, j, "kg", e.target.value)}
-                                style={inputStyle}
+                                style={inputStyle(r.done)}
                               />
                               <input
-                                type="text" inputMode="numeric" value={r.reps}
-                                placeholder={last?.sets[j]?.reps != null ? String(last.sets[j].reps) : "–"}
+                                type="text" inputMode="numeric" value={r.reps} placeholder={timed ? "–" : ex.reps}
                                 onChange={(e) => updateSet(sessionExIndex, j, "reps", e.target.value)}
-                                style={inputStyle}
+                                style={inputStyle(r.done)}
                               />
+                              <button
+                                onClick={() => toggleSetDone(sessionExIndex, j)}
+                                aria-label={r.done ? `Un-tick set ${j + 1}` : `Tick set ${j + 1} done`}
+                                style={{
+                                  height: 40, cursor: "pointer", borderRadius: 8,
+                                  background: r.done ? "#5EC47A" : "transparent",
+                                  border: `2px solid ${r.done ? "#5EC47A" : "#3a3f55"}`,
+                                  color: r.done ? "#0F1117" : "#556", fontSize: 18, fontWeight: 900,
+                                }}
+                              >✓</button>
                             </div>
                           ))}
                         </div>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10, gap: 8 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, gap: 8 }}>
                           <span style={{ fontSize: 11, color: "#667", lineHeight: 1.4 }}>
-                            {assisted ? "Less assistance = harder." : "Leave kg blank for bodyweight."}
+                            Tick each set when it's done — that saves it and starts your rest.
+                            {assisted ? " Less assistance = harder." : " Leave kg blank for bodyweight."}
                           </span>
                           <button
                             onClick={() => addSetRow(sessionExIndex)}
@@ -2076,7 +2124,7 @@ export default function App() {
                   <div style={{ display: "flex", gap: 10 }}>
                     {sessionExIndex > 0 && (
                       <button
-                        onClick={() => { commitSets(sessionExIndex); setSessionExIndex((i) => i - 1); }}
+                        onClick={() => { setHoldStartMs(null); setSessionExIndex((i) => i - 1); }}
                         style={{
                           flex: 1, background: "#1A1D2E", border: "1px solid #2A2D3E", borderRadius: 10,
                           padding: "13px", fontSize: 14, fontWeight: 700, color: "#AAB",
@@ -2100,17 +2148,6 @@ export default function App() {
 
                   {/* Exercise detail */}
                   <div style={{ background: "#1A1D2E", border: `1px solid ${phase.color}44`, borderRadius: 12, padding: "20px" }}>
-                    <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 16 }}>
-                      <div style={{ fontSize: 32 }}>{ex.icon}</div>
-                      <div>
-                        <div style={{ fontSize: 18, fontWeight: 800, color: phase.color, lineHeight: 1.2 }}>{ex.name}</div>
-                        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                          <span style={{ background: `${phase.color}22`, color: phase.color, fontSize: 12, fontWeight: 700, padding: "3px 10px", borderRadius: 4 }}>{ex.sets} sets</span>
-                          <span style={{ background: "#252840", color: "#AAB", fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: 4 }}>{ex.reps}</span>
-                        </div>
-                      </div>
-                    </div>
-
                     {/* Coach's note — only when the slot actually has one (library-added
                         exercises have an empty note, so this stays hidden for them). */}
                     {ex.note && (
@@ -2206,6 +2243,30 @@ export default function App() {
                     )}
                   </div>
                 </div>
+
+                {/* Rest bar — pinned to the bottom so ticking a set doesn't shift the page */}
+                {restEndsAt && (() => {
+                  const remaining = Math.max(0, Math.ceil((restEndsAt - nowMs) / 1000));
+                  const restBtn = {
+                    cursor: "pointer", background: "transparent", border: "1px solid #E0884A66",
+                    borderRadius: 8, padding: "9px 0", width: 52, fontSize: 13, fontWeight: 700, color: "#E0884A",
+                  };
+                  return (
+                    <div style={{
+                      flexShrink: 0, background: "#1F1A16", borderTop: "1px solid #E0884A55",
+                      padding: "12px 20px", display: "flex", alignItems: "center", gap: 10,
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 10.5, letterSpacing: 1.5, textTransform: "uppercase", color: "#E0884A", fontWeight: 700 }}>Rest</div>
+                        <div style={{ fontSize: 30, fontWeight: 800, color: "#F0A060", fontVariantNumeric: "tabular-nums", lineHeight: 1.1 }}>{formatTime(remaining)}</div>
+                      </div>
+                      <button onClick={() => adjustRest(-15)} style={restBtn}>−15</button>
+                      <button onClick={() => adjustRest(15)} style={restBtn}>+15</button>
+                      <button onClick={skipRest} style={{ ...restBtn, width: 60, background: "#E0884A", color: "#1F1A16", border: "none" }}>Skip</button>
+                    </div>
+                  );
+                })()}
+                </>
               );
             })()}
           </div>
@@ -2313,7 +2374,7 @@ export default function App() {
                         {history.map((h) => (
                           <div key={h.date} style={{ display: "flex", gap: 10, fontSize: 12.5, lineHeight: 1.4 }}>
                             <span style={{ color: "#8a8fa3", fontWeight: 700, width: 52, flexShrink: 0 }}>{formatDate(h.date)}</span>
-                            <span style={{ color: "#CCD", fontVariantNumeric: "tabular-nums" }}>{h.sets.map(formatSet).join(", ")}</span>
+                            <span style={{ color: "#CCD", fontVariantNumeric: "tabular-nums" }}>{h.sets.map((st) => formatSet(st, topOfRange(ex.reps) === null)).join(", ")}</span>
                           </div>
                         ))}
                       </div>
